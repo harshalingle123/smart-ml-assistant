@@ -1,0 +1,67 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                    🔧 QUICK FIX - DEPLOYMENT FAILED                          ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+ERROR: Missing MONGO_URI environment variable
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                           FASTEST FIX (2 MINUTES)                            ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+1. Go to: https://dashboard.render.com
+2. Click on: smart-ml-backend service
+3. Click: Environment (left sidebar)
+4. Click: Add Environment Variable
+5. Enter:
+   Key:   MONGO_URI
+   Value: mongodb+srv://Harshal:Harshal%40123@cluster0.hguakgq.mongodb.net/smartml?appName=Cluster0
+6. Click: Save Changes
+7. Wait 2-3 minutes for auto-redeploy
+8. Check: https://smart-ml-backend.onrender.com/health
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                      ALL REQUIRED ENVIRONMENT VARIABLES                      ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+Add these in Render Dashboard → smart-ml-backend → Environment:
+
+MONGO_URI
+mongodb+srv://Harshal:Harshal%40123@cluster0.hguakgq.mongodb.net/smartml?appName=Cluster0
+
+SECRET_KEY
+rRSooDw_EKXFTyH9QGx6LNTWUoHWdz2UeEu1IwBGnCs
+
+ALGORITHM
+HS256
+
+ACCESS_TOKEN_EXPIRE_MINUTES
+30
+
+ENVIRONMENT
+production
+
+CORS_ORIGINS
+(Leave empty for now, update after frontend deploys)
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                            AFTER BACKEND WORKS                               ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+1. Get frontend URL from smart-ml-frontend service
+2. Update CORS_ORIGINS with that URL
+3. Test both services
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                              VERIFY MONGODB                                  ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+Before deploying, check MongoDB Atlas:
+1. Go to: https://cloud.mongodb.com
+2. Network Access → Verify 0.0.0.0/0 is whitelisted
+3. Database Access → Verify user "Harshal" has read/write permissions
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                            DETAILED HELP                                     ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+See DEPLOYMENT_FIX.md for complete troubleshooting guide
