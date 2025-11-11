@@ -1,0 +1,126 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║           🔧 FIX "FAILED TO FETCH" ERROR - DO THIS NOW                       ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+Your frontend can't connect to backend. Here's how to fix it:
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                          STEP 1: ADD VITE_API_URL                            ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+1. Go to: https://dashboard.render.com
+2. Click: smart-ml-backend service
+3. COPY the URL at the top (looks like: https://smart-ml-backend-xxxx.onrender.com)
+4. Go back to Dashboard
+5. Click: smart-ml-frontend service
+6. Click: Environment (left sidebar)
+7. Click: Add Environment Variable
+8. Enter:
+   Key:   VITE_API_URL
+   Value: [PASTE YOUR BACKEND URL HERE]
+
+   Example: https://smart-ml-backend.onrender.com
+
+9. Click: Save Changes
+10. Wait 5-10 minutes for redeploy
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                       STEP 2: UPDATE CORS_ORIGINS                            ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+1. Still in Render Dashboard
+2. Click: smart-ml-frontend service
+3. COPY the URL at the top (looks like: https://smart-ml-frontend-xxxx.onrender.com)
+4. Go back to Dashboard
+5. Click: smart-ml-backend service
+6. Click: Environment (left sidebar)
+7. Find: CORS_ORIGINS variable
+8. Click: Edit (pencil icon)
+9. Enter:
+   Value: [PASTE YOUR FRONTEND URL HERE]
+
+   Example: https://smart-ml-frontend.onrender.com
+
+10. Click: Save Changes
+11. Wait 2-3 minutes for redeploy
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                   STEP 3: REDEPLOY FRONTEND WITH NEW CODE                    ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+The code fix has been pushed to GitHub. Redeploy frontend:
+
+1. Go to: smart-ml-frontend service
+2. Click: Manual Deploy (dropdown, top right)
+3. Select: Clear build cache & deploy
+4. Wait: 5-10 minutes
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                              STEP 4: TEST                                    ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+After all deployments complete:
+
+1. Visit your backend: https://smart-ml-backend.onrender.com/health
+   Should see: {"status": "healthy"}
+
+2. Visit your frontend: https://smart-ml-frontend.onrender.com
+   Should load without errors
+
+3. Try to login or register
+   Should work! No more "Failed to fetch"
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                            WHAT WAS WRONG?                                   ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+Problem 1: Frontend was hardcoded to http://localhost:8000
+Solution: Now uses VITE_API_URL environment variable
+
+Problem 2: Frontend didn't know where backend is deployed
+Solution: You set VITE_API_URL to your backend URL
+
+Problem 3: Backend didn't allow frontend origin (CORS)
+Solution: You set CORS_ORIGINS to your frontend URL
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                         YOUR CONFIGURATION                                   ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+Backend Environment (smart-ml-backend):
+  MONGO_URI: mongodb+srv://Harshal:Harshal%40123@cluster0...
+  SECRET_KEY: rRSooDw_EKXFTyH9QGx6LNTWUoHWdz2UeEu1IwBGnCs
+  ALGORITHM: HS256
+  ACCESS_TOKEN_EXPIRE_MINUTES: 30
+  ENVIRONMENT: production
+  CORS_ORIGINS: https://smart-ml-frontend.onrender.com ← YOUR FRONTEND URL
+
+Frontend Environment (smart-ml-frontend):
+  NODE_VERSION: 20.11.0
+  VITE_API_URL: https://smart-ml-backend.onrender.com ← YOUR BACKEND URL
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                          TROUBLESHOOTING                                     ║
+╚══════════════════════════════════════════════════════════════════════════════╗
+
+Still not working?
+
+1. Check both services are "Live" (green status)
+2. Check backend health: /health endpoint should work
+3. Open browser console (F12) and check for CORS errors
+4. Verify URLs don't have trailing slashes
+5. Make sure you're using https:// not http://
+
+See FRONTEND_BACKEND_CONNECTION_FIX.md for detailed troubleshooting
+
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                            ACTION REQUIRED                                   ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+Do these 3 steps now:
+
+1. ✅ Add VITE_API_URL to frontend environment
+2. ✅ Update CORS_ORIGINS in backend environment
+3. ✅ Redeploy frontend with "Clear build cache & deploy"
+
+Then test your app! 🚀
