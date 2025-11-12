@@ -48,10 +48,10 @@ production
 
 
 ────────────────────────────────────────────────────────────────────────────────
-6. CORS_ORIGINS (Leave empty initially)
+6. CORS_ORIGINS (⚠️ CRITICAL - Must include your custom domain)
 ────────────────────────────────────────────────────────────────────────────────
 
-(blank - update after frontend deploys with: https://smart-ml-frontend.onrender.com)
+https://darshix.com
 
 
 ────────────────────────────────────────────────────────────────────────────────
