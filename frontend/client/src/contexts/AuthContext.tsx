@@ -44,14 +44,17 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, []);
 
   const login = async (newToken: string) => {
-    localStorage.setItem("token", newToken);
-    setToken(newToken);
     try {
       const userData = await getCurrentUser(newToken);
+      localStorage.setItem("token", newToken);
+      setToken(newToken);
       setUser(userData);
     } catch (error) {
       console.error("Failed to fetch user after login:", error);
-      logout();
+      localStorage.removeItem("token");
+      setToken(null);
+      setUser(null);
+      throw error;
     }
   };
 
@@ -69,7 +72,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     user,
     token,
     isLoading,
-    isAuthenticated: !!token && !!user,
+    isAuthenticated: !!token,
     login,
     logout,
     updateUser,

@@ -18,7 +18,7 @@ import { GoogleLogin, CredentialResponse } from "@react-oauth/google";
 import { login, googleLogin } from "@/lib/auth";
 import { useAuth } from "@/contexts/AuthContext";
 import { AlertCircle } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 const formSchema = z.object({
   email: z.string().email("Invalid email address"),
@@ -27,15 +27,27 @@ const formSchema = z.object({
 
 export default function Login() {
   const [, setLocation] = useLocation();
-  const { login: loginUser } = useAuth();
+  const { login: loginUser, isAuthenticated } = useAuth();
   const [googleError, setGoogleError] = useState<string | null>(null);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  const [loginSuccess, setLoginSuccess] = useState(false);
+
+  // Navigate to dashboard after successful authentication
+  useEffect(() => {
+    if (loginSuccess && isAuthenticated) {
+      setLocation("/");
+    }
+  }, [loginSuccess, isAuthenticated, setLocation]);
 
   const mutation = useMutation({
     mutationFn: login,
     onSuccess: async (data) => {
-      await loginUser(data.access_token);
-      setLocation("/");
+      try {
+        await loginUser(data.access_token);
+        setLoginSuccess(true);
+      } catch (error) {
+        console.error("Login failed:", error);
+      }
     },
   });
 
@@ -63,7 +75,7 @@ export default function Login() {
     try {
       const data = await googleLogin(credentialResponse.credential);
       await loginUser(data.access_token);
-      setLocation("/");
+      setLoginSuccess(true);
     } catch (error) {
       setGoogleError(error instanceof Error ? error.message : "Failed to authenticate with Google");
     } finally {
