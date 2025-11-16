@@ -12,6 +12,7 @@ import { createChat, sendMessage, sendMessageToAgent, getChatMessages, updateCha
 import { useToast } from "@/hooks/use-toast";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { getApiUrl } from "@/lib/env";
 
 interface KaggleDataset {
   ref: string;
@@ -64,7 +65,7 @@ export default function Chat() {
 
       // Use fetch with streaming instead of EventSource (allows auth headers)
       const response = await fetch(
-        `http://localhost:8000/api/automl/train/${datasetId}?chat_id=${currentChatId}`,
+        `${getApiUrl()}/api/automl/train/${datasetId}?chat_id=${currentChatId}`,
         {
           method: 'POST',
           headers: {
