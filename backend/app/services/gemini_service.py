@@ -23,7 +23,7 @@ class GeminiService:
             raise ValueError("Gemini API is not configured. Please set GOOGLE_GEMINI_API_KEY in environment variables.")
 
         if system_prompt is None:
-            system_prompt = """You are Smart ML Assistant, an AI specialized in machine learning,
+            system_prompt = """You are AutoML, an AI specialized in machine learning,
 data analysis, and sentiment analysis. You help users with:
 
 - Text classification and sentiment analysis

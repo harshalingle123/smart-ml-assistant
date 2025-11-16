@@ -63,7 +63,7 @@ export function AppSidebar() {
             <Bot className="h-5 w-5" />
           </div>
           <div className="flex flex-col">
-            <span className="text-sm font-semibold">Smart ML Assistant</span>
+            <span className="text-sm font-semibold">AutoML</span>
           </div>
         </div>
       </SidebarHeader>

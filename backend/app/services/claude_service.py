@@ -41,7 +41,7 @@ class ClaudeService:
 
         # Default system prompt for ML assistant
         if system_prompt is None:
-            system_prompt = """You are Smart ML Assistant, an AI specialized in machine learning,
+            system_prompt = """You are AutoML, an AI specialized in machine learning,
 data analysis, and sentiment analysis. You help users with:
 
 - Text classification and sentiment analysis

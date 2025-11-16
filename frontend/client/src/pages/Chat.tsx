@@ -228,7 +228,7 @@ export default function Chat() {
           setMessages([
             {
               role: "assistant",
-              content: "Welcome to Smart ML Assistant! I'm powered by Google Gemini with AI Agent capabilities and can help you with:\n\n✨ **Agent Mode (Recommended)**\nI automatically:\n• Understand your ML requirements\n• Find relevant datasets from Kaggle & HuggingFace\n• Suggest the best models for your task\n• Provide cost & time estimates\n\n💬 **You can ask me:**\n• \"I need a dataset to predict house prices\"\n• \"Find sentiment analysis datasets\"\n• \"Classify customer support tickets with <200ms latency\"\n• \"What's the best model for image classification?\"\n\nAgent Mode is ON by default. Toggle it off for regular chat.\n\nHow can I help you today?",
+              content: "Welcome to AutoML! I'm powered by Google Gemini with AI Agent capabilities and can help you with:\n\n✨ **Agent Mode (Recommended)**\nI automatically:\n• Understand your ML requirements\n• Find relevant datasets from Kaggle & HuggingFace\n• Suggest the best models for your task\n• Provide cost & time estimates\n\n💬 **You can ask me:**\n• \"I need a dataset to predict house prices\"\n• \"Find sentiment analysis datasets\"\n• \"Classify customer support tickets with <200ms latency\"\n• \"What's the best model for image classification?\"\n\nAgent Mode is ON by default. Toggle it off for regular chat.\n\nHow can I help you today?",
               timestamp: new Date(),
             },
           ]);
