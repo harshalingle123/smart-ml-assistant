@@ -20,7 +20,10 @@ class MessageResponse(BaseModel):
     query_type: Optional[str] = None
     charts: Optional[Any] = None
     timestamp: datetime
+    metadata: Optional[Any] = None  # For storing dataset search results and other metadata
+    kaggle_datasets: Optional[Any] = None  # For agent dataset recommendations
 
     class Config:
         from_attributes = True
         json_encoders = {PyObjectId: str}
+        populate_by_name = True

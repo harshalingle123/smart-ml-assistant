@@ -39,3 +39,72 @@ Thumbs.db
 *.db
 *.sqlite
 *.sqlite3
+
+# Test files
+test_*.py
+*_test.py
+test_data.csv
+working_demo.py
+
+# Documentation and guides (keep in local only)
+# Temporary fix and debug documentation
+*_GUIDE.md
+*_COMPLETE.md
+*_READY.md
+*_FIXED.md
+*_FIX.md
+*_SUMMARY.md
+*_STATUS.md
+*_IMPLEMENTATION.md
+*_INTEGRATION.md
+*_ANALYSIS.md
+*_SETUP.md
+*_INSTRUCTIONS.md
+*_RESULTS.md
+*_DEBUG.md
+ACTION_REQUIRED.txt
+FINAL_FIX_APPLIED.txt
+START_HERE.md
+RUN_PROJECT.md
+FIX_*.md
+BUG_*.md
+DUPLICATE_*.md
+DYNAMIC_*.md
+HUGGINGFACE_*.md
+IMPLEMENTATION_*.md
+INSTALL_*.md
+SIMPLE_*.md
+SMS_*.md
+TEST_*.md
+TROUBLESHOOT_*.md
+VISUAL_*.md
+
+# Keep essential documentation (not ignored):
+# - README.md
+# - QUICK_START*.md (for users)
+# - DIRECT_ACCESS_README.md (API documentation)
+
+# Batch scripts
+*.bat
+*.sh
+
+# Migration scripts
+migrate_*.py
+check_*.py
+debug_*.py
+diagnose_*.py
+fix_*.py
+quick_fix_*.py
+verify_*.py
+
+# Temp files
+nul
+=*
+Requirement/
+
+# Backend temp directories
+backend/backend/
+backend/data/
+
+# Claude Code
+.claude/

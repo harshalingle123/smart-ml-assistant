@@ -41,7 +41,7 @@ class User(BaseModel):
     billing_cycle: Optional[str] = None
 
     class Config:
-        allow_population_by_field_name = True
+        populate_by_name = True
         arbitrary_types_allowed = True
         json_encoders = {ObjectId: str}
 
@@ -55,9 +55,10 @@ class Chat(BaseModel):
     last_updated: datetime = Field(default_factory=datetime.utcnow)
 
     class Config:
-        allow_population_by_field_name = True
+        populate_by_name = True
         arbitrary_types_allowed = True
         json_encoders = {ObjectId: str}
+        protected_namespaces = ()
 
 
 class Message(BaseModel):
@@ -67,10 +68,11 @@ class Message(BaseModel):
     content: str = Field(...)
     query_type: Optional[str] = None
     charts: Optional[Any] = None
+    metadata: Optional[dict] = None  # For storing agent function calls, datasets, etc.
     timestamp: datetime = Field(default_factory=datetime.utcnow)
 
     class Config:
-        allow_population_by_field_name = True
+        populate_by_name = True
         arbitrary_types_allowed = True
         json_encoders = {ObjectId: str}
 
@@ -89,7 +91,7 @@ class Model(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     class Config:
-        allow_population_by_field_name = True
+        populate_by_name = True
         arbitrary_types_allowed = True
         json_encoders = {ObjectId: str}
 
@@ -105,11 +107,18 @@ class Dataset(BaseModel):
     status: str = Field(default="processing")
     preview_data: Optional[Any] = None
     uploaded_at: datetime = Field(default_factory=datetime.utcnow)
+    source: Optional[str] = None
+    kaggle_ref: Optional[str] = None
+    download_path: Optional[str] = None
+    column_schema: Optional[List[Any]] = Field(default=None, alias="schema", serialization_alias="schema")
+    sample_data: Optional[List[Any]] = Field(default=None)
+    target_column: Optional[str] = Field(default=None)
 
     class Config:
-        allow_population_by_field_name = True
+        populate_by_name = True
         arbitrary_types_allowed = True
         json_encoders = {ObjectId: str}
+        protected_namespaces = ()
 
 
 class FineTuneJob(BaseModel):
@@ -126,9 +135,10 @@ class FineTuneJob(BaseModel):
     completed_at: Optional[datetime] = None
 
     class Config:
-        allow_population_by_field_name = True
+        populate_by_name = True
         arbitrary_types_allowed = True
         json_encoders = {ObjectId: str}
+        protected_namespaces = ()
 
 
 class ApiKey(BaseModel):
@@ -140,6 +150,142 @@ class ApiKey(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     class Config:
-        allow_population_by_field_name = True
+        populate_by_name = True
+        arbitrary_types_allowed = True
+        json_encoders = {ObjectId: str}
+        protected_namespaces = ()
+
+
+class TrainingJob(BaseModel):
+    id: PyObjectId = Field(default_factory=PyObjectId, alias="_id")
+    user_id: PyObjectId = Field(...)
+    dataset_id: PyObjectId = Field(...)
+    model_id: str = Field(...)
+    base_model: str = Field(...)
+    status: str = Field(default="queued")
+    progress: int = Field(default=0)
+    current_step: Optional[str] = None
+    estimated_cost: float = Field(default=0.0)
+    estimated_duration_minutes: int = Field(default=60)
+    hyperparameters: Optional[Any] = None
+    metrics: Optional[Any] = None
+    error_message: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+
+    class Config:
+        populate_by_name = True
+        arbitrary_types_allowed = True
+        json_encoders = {ObjectId: str}
+        protected_namespaces = ()
+
+
+class PrebuiltModel(BaseModel):
+    id: PyObjectId = Field(default_factory=PyObjectId, alias="_id")
+    name: str = Field(...)
+    description: str = Field(...)
+    task_type: str = Field(...)
+    model_id: str = Field(...)
+    languages: List[str] = Field(default_factory=list)
+    performance_metrics: Any = Field(default_factory=dict)
+    use_cases: List[str] = Field(default_factory=list)
+    example_input: str = Field(...)
+    example_output: str = Field(...)
+    deployment_ready: bool = Field(default=True)
+    cost_per_1k_requests: float = Field(default=0.0)
+
+    class Config:
+        populate_by_name = True
+        arbitrary_types_allowed = True
+        json_encoders = {ObjectId: str}
+        protected_namespaces = ()
+
+
+class Deployment(BaseModel):
+    id: PyObjectId = Field(default_factory=PyObjectId, alias="_id")
+    user_id: PyObjectId = Field(...)
+    model_type: str = Field(...)
+    model_id: str = Field(...)
+    name: str = Field(...)
+    description: Optional[str] = None
+    status: str = Field(default="deploying")
+    endpoint_url: str = Field(...)
+    api_key: str = Field(...)
+    environment: str = Field(default="production")
+    auto_scale: bool = Field(default=True)
+    requests_count: int = Field(default=0)
+    last_request_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class Config:
+        populate_by_name = True
+        arbitrary_types_allowed = True
+        json_encoders = {ObjectId: str}
+        protected_namespaces = ()
+
+
+class DirectAccessKey(BaseModel):
+    id: PyObjectId = Field(default_factory=PyObjectId, alias="_id")
+    user_id: PyObjectId = Field(...)
+    api_key: str = Field(...)
+    model_id: str = Field(...)
+    model_name: str = Field(...)
+    task: str = Field(...)
+    subtask: Optional[str] = None
+    usage_plan: str = Field(default="free")
+    free_tier_limit: int = Field(default=10000)
+    requests_used: int = Field(default=0)
+    requests_this_month: int = Field(default=0)
+    rate_limit: int = Field(default=10)
+    status: str = Field(default="active")
+    priority: str = Field(default="speed")
+    language: str = Field(default="en")
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    expires_at: Optional[datetime] = None
+    last_used_at: Optional[datetime] = None
+    last_reset_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class Config:
+        populate_by_name = True
+        arbitrary_types_allowed = True
+        json_encoders = {ObjectId: str}
+        protected_namespaces = ()
+
+
+class ModelUsage(BaseModel):
+    id: PyObjectId = Field(default_factory=PyObjectId, alias="_id")
+    api_key_id: PyObjectId = Field(...)
+    user_id: PyObjectId = Field(...)
+    model_id: str = Field(...)
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+    latency_ms: int = Field(...)
+    status: str = Field(...)
+    cost: float = Field(default=0.0)
+    request_id: str = Field(...)
+    batch_size: int = Field(default=1)
+    error_message: Optional[str] = None
+
+    class Config:
+        populate_by_name = True
+        arbitrary_types_allowed = True
+        json_encoders = {ObjectId: str}
+        protected_namespaces = ()
+
+
+class AlertConfig(BaseModel):
+    id: PyObjectId = Field(default_factory=PyObjectId, alias="_id")
+    user_id: PyObjectId = Field(...)
+    api_key_id: PyObjectId = Field(...)
+    threshold: int = Field(...)
+    alert_type: str = Field(...)
+    recipient: str = Field(...)
+    enabled: bool = Field(default=True)
+    last_triggered_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class Config:
+        populate_by_name = True
         arbitrary_types_allowed = True
         json_encoders = {ObjectId: str}

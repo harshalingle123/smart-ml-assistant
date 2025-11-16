@@ -2,26 +2,45 @@ import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/componen
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Download, Key, Trash2, CheckCircle2 } from "lucide-react";
-import type { Model } from "@shared/schema";
+
+interface Model {
+  id: string;
+  name: string;
+  baseModel: string;
+  version?: string;
+  accuracy: string;
+  f1Score?: string;
+  loss: string;
+  status: string;
+  createdAt: string;
+  taskType?: string;
+}
 
 interface ModelCardProps {
   model: Model;
   onDownload?: (id: string) => void;
   onGenerateAPI?: (id: string) => void;
   onDelete?: (id: string) => void;
+  onClick?: (id: string) => void;
 }
 
-export function ModelCard({ model, onDownload, onGenerateAPI, onDelete }: ModelCardProps) {
+export function ModelCard({ model, onDownload, onGenerateAPI, onDelete, onClick }: ModelCardProps) {
   return (
-    <Card className="hover-elevate" data-testid={`card-model-${model.id}`}>
+    <Card
+      className="hover-elevate cursor-pointer transition-all"
+      data-testid={`card-model-${model.id}`}
+      onClick={() => onClick?.(model.id)}
+    >
       <CardHeader>
         <div className="flex items-start justify-between gap-2">
           <div className="space-y-1">
             <CardTitle className="text-lg font-semibold">{model.name}</CardTitle>
             <div className="flex items-center gap-2">
-              <Badge variant="outline" className="text-xs">
-                v{model.version}
-              </Badge>
+              {model.version && (
+                <Badge variant="outline" className="text-xs">
+                  v{model.version}
+                </Badge>
+              )}
               <Badge
                 variant={model.status === "ready" ? "default" : "secondary"}
                 className="text-xs"
@@ -69,7 +88,10 @@ export function ModelCard({ model, onDownload, onGenerateAPI, onDelete }: ModelC
         <Button
           variant="outline"
           size="sm"
-          onClick={() => onDownload?.(model.id)}
+          onClick={(e) => {
+            e.stopPropagation();
+            onDownload?.(model.id);
+          }}
           data-testid={`button-download-${model.id}`}
         >
           <Download className="h-4 w-4 mr-1" />
@@ -78,16 +100,22 @@ export function ModelCard({ model, onDownload, onGenerateAPI, onDelete }: ModelC
         <Button
           variant="outline"
           size="sm"
-          onClick={() => onGenerateAPI?.(model.id)}
+          onClick={(e) => {
+            e.stopPropagation();
+            onGenerateAPI?.(model.id);
+          }}
           data-testid={`button-api-${model.id}`}
         >
           <Key className="h-4 w-4 mr-1" />
-          API
+          View
         </Button>
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => onDelete?.(model.id)}
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete?.(model.id);
+          }}
           data-testid={`button-delete-${model.id}`}
         >
           <Trash2 className="h-4 w-4" />

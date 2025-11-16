@@ -1,17 +1,96 @@
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Bot, User } from "lucide-react";
+import { Bot, User, Download, Code } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useToast } from "@/hooks/use-toast";
+import { useLocation } from "wouter";
 
 interface MessageBubbleProps {
   role: "user" | "assistant";
   content: string;
   queryType?: "simple" | "data_based";
   timestamp?: Date;
+  metadata?: {
+    model_id?: string;
+    best_model?: string;
+    metrics?: Record<string, any>;
+  };
 }
 
-export function MessageBubble({ role, content, queryType, timestamp }: MessageBubbleProps) {
+export function MessageBubble({ role, content, queryType, timestamp, metadata }: MessageBubbleProps) {
   const isUser = role === "user";
+  const { toast } = useToast();
+  const [, setLocation] = useLocation();
+
+  const handleDownloadModel = async () => {
+    if (!metadata?.model_id) return;
+
+    try {
+      const token = localStorage.getItem("token");
+      if (!token) {
+        toast({
+          title: "Authentication Required",
+          description: "Please log in to download models",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      toast({
+        title: "Download Started",
+        description: "Preparing model for download...",
+      });
+
+      // Download model metadata as JSON
+      const response = await fetch(`http://localhost:8000/api/models/${metadata.model_id}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to fetch model");
+      }
+
+      const modelData = await response.json();
+
+      // Create downloadable JSON file
+      const blob = new Blob([JSON.stringify(modelData, null, 2)], { type: 'application/json' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `model_${metadata.model_id}_${Date.now()}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+
+      toast({
+        title: "Download Complete",
+        description: "Model metadata downloaded successfully",
+      });
+    } catch (error) {
+      console.error("Failed to download model:", error);
+      toast({
+        title: "Download Failed",
+        description: error instanceof Error ? error.message : "Failed to download model",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleGenerateAPI = () => {
+    if (!metadata?.model_id) return;
+
+    toast({
+      title: "Navigating to API",
+      description: "Opening API generation page...",
+    });
+
+    // Navigate to Direct Access page (or Models page) with the model_id
+    setLocation(`/models?highlight=${metadata.model_id}`);
+  };
 
   return (
     <div className={cn("flex gap-3", isUser && "flex-row-reverse")}>
@@ -20,7 +99,7 @@ export function MessageBubble({ role, content, queryType, timestamp }: MessageBu
           {isUser ? <User className="h-4 w-4" /> : <Bot className="h-4 w-4" />}
         </AvatarFallback>
       </Avatar>
-      
+
       <div className={cn("flex flex-col gap-2 max-w-3xl", isUser && "items-end")}>
         <div
           className={cn(
@@ -32,7 +111,31 @@ export function MessageBubble({ role, content, queryType, timestamp }: MessageBu
         >
           <p className="text-sm whitespace-pre-wrap">{content}</p>
         </div>
-        
+
+        {/* Model Action Buttons */}
+        {metadata?.model_id && !isUser && (
+          <div className="flex gap-2 mt-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleDownloadModel}
+              className="flex items-center gap-2"
+            >
+              <Download className="h-4 w-4" />
+              Download Model
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleGenerateAPI}
+              className="flex items-center gap-2"
+            >
+              <Code className="h-4 w-4" />
+              Generate API
+            </Button>
+          </div>
+        )}
+
         <div className={cn("flex items-center gap-2 text-xs text-muted-foreground", isUser && "flex-row-reverse")}>
           {timestamp && (
             <span>{timestamp.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>

@@ -26,6 +26,12 @@ services:
         sync: false
       - key: GOOGLE_REDIRECT_URI
         sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: CLAUDE_MODEL
+        value: claude-3-5-sonnet-20241022
+      - key: CLAUDE_MAX_TOKENS
+        value: 4096
     healthCheckPath: /health
 
   # Frontend Static Site
@@ -38,6 +44,8 @@ services:
       - key: NODE_VERSION
         value: 20.11.0
       - key: VITE_API_URL
+        sync: false
+      - key: VITE_GOOGLE_CLIENT_ID
         sync: false
     routes:
       - type: rewrite

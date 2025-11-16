@@ -11,7 +11,9 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import Chat from "@/pages/Chat";
 import Models from "@/pages/Models";
+import ModelDetail from "@/pages/ModelDetail";
 import Datasets from "@/pages/Datasets";
+import DatasetDetails from "@/pages/DatasetDetails";
 import FineTune from "@/pages/FineTune";
 import Billing from "@/pages/Billing";
 import Chats from "@/pages/Chats";
@@ -40,7 +42,9 @@ function ProtectedLayout() {
               <Switch>
                 <Route path="/" component={Chat} />
                 <Route path="/chats" component={Chats} />
+                <Route path="/models/:id" component={ModelDetail} />
                 <Route path="/models" component={Models} />
+                <Route path="/datasets/:id" component={DatasetDetails} />
                 <Route path="/datasets" component={Datasets} />
                 <Route path="/fine-tune" component={FineTune} />
                 <Route path="/billing" component={Billing} />

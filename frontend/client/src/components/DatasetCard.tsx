@@ -1,8 +1,9 @@
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Download, Trash2, FileText, CheckCircle2, Loader2 } from "lucide-react";
+import { Download, Trash2, FileText, CheckCircle2, Loader2, Link2, ExternalLink, Eye } from "lucide-react";
 import type { Dataset } from "@shared/schema";
+import { Link } from "wouter";
 
 interface DatasetCardProps {
   dataset: Dataset;
@@ -10,8 +11,37 @@ interface DatasetCardProps {
   onDelete?: (id: string) => void;
 }
 
-export function DatasetCard({ dataset, onDownload, onDelete }: DatasetCardProps) {
+/**
+ * Normalizes dataset object to handle both snake_case and camelCase field formats
+ */
+const normalizeDataset = (dataset: any): Dataset => {
+  console.log('DatasetCard - Raw dataset received:', dataset);
+
+  const normalized = {
+    id: dataset.id || dataset._id || '',
+    name: dataset.name || 'Unnamed Dataset',
+    rowCount: dataset.rowCount ?? dataset.row_count ?? 0,
+    columnCount: dataset.columnCount ?? dataset.column_count ?? 0,
+    fileSize: dataset.fileSize ?? dataset.file_size ?? 0,
+    status: dataset.status || 'unknown',
+    uploadedAt: dataset.uploadedAt ?? dataset.uploaded_at ?? null,
+    previewData: dataset.previewData ?? dataset.preview_data ?? null,
+    fileName: dataset.fileName ?? dataset.file_name ?? null,
+    kaggleRef: dataset.kaggleRef ?? dataset.kaggle_ref ?? null,
+    huggingfaceRef: dataset.huggingfaceRef ?? dataset.huggingface_ref ?? null,
+    description: dataset.description ?? null,
+    schema: dataset.schema ?? null,
+  } as Dataset;
+
+  console.log('DatasetCard - Normalized dataset:', normalized);
+
+  return normalized;
+};
+
+export function DatasetCard({ dataset: rawDataset, onDownload, onDelete }: DatasetCardProps) {
+  const dataset = normalizeDataset(rawDataset);
   const formatFileSize = (bytes: number) => {
+    if (!bytes || isNaN(bytes) || bytes === 0) return "Unknown";
     if (bytes < 1024) return bytes + " B";
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
     return (bytes / (1024 * 1024)).toFixed(1) + " MB";
@@ -26,29 +56,48 @@ export function DatasetCard({ dataset, onDownload, onDelete }: DatasetCardProps)
             <CardTitle className="text-lg font-semibold">{dataset.name}</CardTitle>
           </div>
           <Badge
-            variant={dataset.status === "ready" ? "default" : "secondary"}
+            variant={dataset.status === "ready" ? "default" : dataset.status === "pending_download" ? "outline" : "secondary"}
             className="text-xs"
           >
             {dataset.status === "processing" && (
               <Loader2 className="h-3 w-3 mr-1 animate-spin" />
             )}
             {dataset.status === "ready" && <CheckCircle2 className="h-3 w-3 mr-1" />}
-            {dataset.status}
+            {dataset.status === "pending_download" && <Link2 className="h-3 w-3 mr-1" />}
+            {dataset.status === "pending_download" ? "Linked" : dataset.status}
           </Badge>
         </div>
       </CardHeader>
 
       <CardContent>
+        {/* Show Kaggle reference for pending downloads */}
+        {dataset.status === "pending_download" && dataset.kaggleRef && (
+          <div className="mb-4 p-3 bg-accent/50 rounded-md">
+            <p className="text-xs text-muted-foreground mb-1">Kaggle Dataset</p>
+            <div className="flex items-center justify-between gap-2">
+              <code className="text-xs font-mono">{dataset.kaggleRef}</code>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => window.open(`https://www.kaggle.com/datasets/${dataset.kaggleRef}`, '_blank')}
+                className="h-7 px-2"
+              >
+                <ExternalLink className="h-3 w-3" />
+              </Button>
+            </div>
+          </div>
+        )}
+
         <div className="grid grid-cols-3 gap-3 mb-4">
           <div className="space-y-1">
             <p className="text-xs text-muted-foreground">Rows</p>
             <p className="text-sm font-medium" data-testid={`text-rows-${dataset.id}`}>
-              {dataset.rowCount.toLocaleString()}
+              {dataset.rowCount > 0 ? dataset.rowCount.toLocaleString() : "N/A"}
             </p>
           </div>
           <div className="space-y-1">
             <p className="text-xs text-muted-foreground">Columns</p>
-            <p className="text-sm font-medium">{dataset.columnCount}</p>
+            <p className="text-sm font-medium">{dataset.columnCount > 0 ? dataset.columnCount : "N/A"}</p>
           </div>
           <div className="space-y-1">
             <p className="text-xs text-muted-foreground">Size</p>
@@ -88,23 +137,37 @@ export function DatasetCard({ dataset, onDownload, onDelete }: DatasetCardProps)
         )}
 
         <div className="mt-3 space-y-1">
-          <p className="text-xs text-muted-foreground">Uploaded</p>
+          <p className="text-xs text-muted-foreground">Added</p>
           <p className="text-sm">
-            {new Date(dataset.uploadedAt).toLocaleDateString()}
+            {dataset.uploadedAt
+              ? new Date(dataset.uploadedAt).toLocaleDateString()
+              : "Unknown"}
           </p>
         </div>
       </CardContent>
 
       <CardFooter className="flex gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => onDownload?.(dataset.id)}
-          data-testid={`button-download-${dataset.id}`}
-        >
-          <Download className="h-4 w-4 mr-1" />
-          Download
-        </Button>
+        <Link href={`/datasets/${dataset.id}`} className="flex-1">
+          <Button
+            variant="default"
+            size="sm"
+            className="w-full"
+            data-testid={`button-view-details-${dataset.id}`}
+          >
+            <Eye className="h-4 w-4 mr-1" />
+            View Details
+          </Button>
+        </Link>
+        {dataset.status === "pending_download" && dataset.kaggleRef && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => window.open(`https://www.kaggle.com/datasets/${dataset.kaggleRef}`, '_blank')}
+            data-testid={`button-open-kaggle-${dataset.id}`}
+          >
+            <ExternalLink className="h-4 w-4" />
+          </Button>
+        )}
         <Button
           variant="ghost"
           size="sm"

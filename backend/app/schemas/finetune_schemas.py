@@ -13,6 +13,9 @@ class FineTuneJobCreate(BaseModel):
     current_step: Optional[str] = None
     logs: Optional[str] = None
 
+    class Config:
+        protected_namespaces = ()
+
 
 class FineTuneJobResponse(BaseModel):
     id: PyObjectId = Field(alias="_id")
@@ -30,3 +33,4 @@ class FineTuneJobResponse(BaseModel):
     class Config:
         from_attributes = True
         json_encoders = {PyObjectId: str}
+        protected_namespaces = ()

@@ -91,14 +91,45 @@ async def delete_chat(
     chat_id: str,
     current_user: User = Depends(get_current_user),
 ):
-    result = await mongodb.database["chats"].delete_one(
-        {"_id": ObjectId(chat_id), "user_id": current_user.id}
-    )
+    try:
+        # Validate and convert chat_id to ObjectId
+        try:
+            chat_oid = ObjectId(chat_id)
+        except Exception as e:
+            print(f"Invalid chat ID format: {chat_id}, error: {str(e)}")
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid chat ID format: {chat_id}"
+            )
 
-    if result.deleted_count == 0:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Chat not found"
+        print(f"Attempting to delete chat: {chat_id} for user: {current_user.id}")
+
+        # Delete the chat
+        result = await mongodb.database["chats"].delete_one(
+            {"_id": chat_oid, "user_id": current_user.id}
         )
 
-    return None
+        print(f"Delete result: deleted_count={result.deleted_count}")
+
+        if result.deleted_count == 0:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Chat not found or you don't have permission to delete it"
+            )
+
+        # Also delete all messages in this chat
+        messages_result = await mongodb.database["messages"].delete_many(
+            {"chat_id": chat_oid}
+        )
+        print(f"Deleted {messages_result.deleted_count} messages from chat")
+
+        print(f"Successfully deleted chat: {chat_id}")
+        return None
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error deleting chat: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete chat: {str(e)}"
+        )

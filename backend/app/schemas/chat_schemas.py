@@ -9,11 +9,17 @@ class ChatCreate(BaseModel):
     model_id: Optional[PyObjectId] = None
     dataset_id: Optional[PyObjectId] = None
 
+    class Config:
+        protected_namespaces = ()
+
 
 class ChatUpdate(BaseModel):
     title: Optional[str] = None
     model_id: Optional[PyObjectId] = None
     dataset_id: Optional[PyObjectId] = None
+
+    class Config:
+        protected_namespaces = ()
 
 
 class ChatResponse(BaseModel):
@@ -27,3 +33,4 @@ class ChatResponse(BaseModel):
     class Config:
         from_attributes = True
         json_encoders = {PyObjectId: str}
+        protected_namespaces = ()

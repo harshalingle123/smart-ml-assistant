@@ -7,6 +7,9 @@ class ApiKeyCreate(BaseModel):
     model_id: PyObjectId
     name: str
 
+    class Config:
+        protected_namespaces = ()
+
 
 class ApiKeyResponse(BaseModel):
     id: PyObjectId = Field(alias="_id")
@@ -19,3 +22,4 @@ class ApiKeyResponse(BaseModel):
     class Config:
         from_attributes = True
         json_encoders = {PyObjectId: str}
+        protected_namespaces = ()
