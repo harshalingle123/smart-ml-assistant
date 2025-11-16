@@ -115,6 +115,7 @@ class Dataset(BaseModel):
     schema: Optional[List[Any]] = Field(default=None)
     sample_data: Optional[List[Any]] = Field(default=None)
     target_column: Optional[str] = Field(default=None)
+    csv_content: Optional[str] = Field(default=None)  # Store full CSV data for production
 
     class Config:
         populate_by_name = True

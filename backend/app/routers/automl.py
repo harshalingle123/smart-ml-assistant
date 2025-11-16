@@ -52,35 +52,52 @@ async def event_generator(dataset_id: str, chat_id: str) -> AsyncGenerator[str, 
         yield event({"type": "status", "message": "📊 Loading dataset..."})
         await asyncio.sleep(1)
 
-        # Load dataset
+        # Load dataset - prioritize csv_content from MongoDB (production-safe)
         try:
-            if dataset.get("source") == "upload":
-                # For uploaded datasets, use the file path
-                file_path = f"backend/data/{dataset_id}/{dataset['file_name']}"
-            else:
-                # For Kaggle datasets, use download path
-                download_path = dataset.get("download_path")
-                if not download_path or not os.path.exists(download_path):
-                    yield event({"type": "error", "message": f"Dataset download path not found: {download_path}"})
-                    return
+            csv_content = dataset.get("csv_content")
 
-                # Find CSV file in download directory
-                from pathlib import Path
-                csv_files = list(Path(download_path).glob("*.csv"))
-                if not csv_files:
-                    yield event({"type": "error", "message": f"No CSV files found in: {download_path}"})
-                    return
-
-                file_path = str(csv_files[0])
-
-            # Load CSV with encoding fallback
-            try:
-                df = pd.read_csv(file_path, encoding='utf-8')
-            except UnicodeDecodeError:
+            if csv_content:
+                # Load from MongoDB-stored CSV content (works in production)
+                yield event({"type": "status", "message": "📦 Loading data from database..."})
+                import io
                 try:
-                    df = pd.read_csv(file_path, encoding='latin-1')
-                except Exception:
-                    df = pd.read_csv(file_path, encoding='utf-8', errors='ignore')
+                    df = pd.read_csv(io.StringIO(csv_content), encoding='utf-8')
+                except UnicodeDecodeError:
+                    try:
+                        df = pd.read_csv(io.StringIO(csv_content), encoding='latin-1')
+                    except Exception:
+                        df = pd.read_csv(io.StringIO(csv_content), encoding='utf-8', errors='ignore')
+
+            else:
+                # Fallback to file system for backward compatibility
+                yield event({"type": "status", "message": "📂 Loading data from file system..."})
+                if dataset.get("source") == "upload":
+                    # For uploaded datasets, use the file path
+                    file_path = f"backend/data/{dataset_id}/{dataset['file_name']}"
+                else:
+                    # For Kaggle datasets, use download path
+                    download_path = dataset.get("download_path")
+                    if not download_path or not os.path.exists(download_path):
+                        yield event({"type": "error", "message": f"Dataset download path not found: {download_path}"})
+                        return
+
+                    # Find CSV file in download directory
+                    from pathlib import Path
+                    csv_files = list(Path(download_path).glob("*.csv"))
+                    if not csv_files:
+                        yield event({"type": "error", "message": f"No CSV files found in: {download_path}"})
+                        return
+
+                    file_path = str(csv_files[0])
+
+                # Load CSV with encoding fallback
+                try:
+                    df = pd.read_csv(file_path, encoding='utf-8')
+                except UnicodeDecodeError:
+                    try:
+                        df = pd.read_csv(file_path, encoding='latin-1')
+                    except Exception:
+                        df = pd.read_csv(file_path, encoding='utf-8', errors='ignore')
 
             await mongodb.database.messages.insert_one({
                 "chat_id": ObjectId(chat_id),

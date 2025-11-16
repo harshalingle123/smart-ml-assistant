@@ -327,6 +327,7 @@ async def upload_dataset(
             schema=schema_cleaned if schema_cleaned else [],
             sample_data=sample_rows_cleaned if sample_rows_cleaned else [],
             target_column=target_column if target_column else None,
+            csv_content=decoded,  # Store full CSV content in MongoDB
         )
 
         dataset_dict = new_dataset.model_dump(by_alias=False, exclude={'id'})
@@ -496,6 +497,19 @@ async def add_dataset_from_kaggle(
             csv_file_path = csv_files[0]
             file_size = csv_file_path.stat().st_size
 
+            # Read full CSV content to store in MongoDB (production-safe)
+            csv_content = None
+            try:
+                with open(csv_file_path, 'r', encoding='utf-8') as f:
+                    csv_content = f.read()
+            except UnicodeDecodeError:
+                try:
+                    with open(csv_file_path, 'r', encoding='latin-1') as f:
+                        csv_content = f.read()
+                except Exception:
+                    with open(csv_file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                        csv_content = f.read()
+
             # Load sample (first 1000 rows for metadata) with encoding fallback
             try:
                 df = pd.read_csv(csv_file_path, nrows=1000, encoding='utf-8')
@@ -560,8 +574,10 @@ async def add_dataset_from_kaggle(
             dataset_dict["source"] = "kaggle"
             dataset_dict["kaggle_ref"] = request.dataset_ref
             dataset_dict["download_path"] = download_path
+            dataset_dict["csv_content"] = csv_content  # Store CSV content in MongoDB
 
             print(f"[ADD_KAGGLE] Fully inspected: {row_count} rows, {col_count} cols, target: {target_column}")
+            print(f"[ADD_KAGGLE] CSV content stored: {len(csv_content) if csv_content else 0} bytes")
 
         else:
             # CASE 2: Kaggle API not configured - save metadata only
@@ -947,6 +963,13 @@ async def inspect_huggingface_dataset(dataset: dict, dataset_id: str, user_query
         schema_cleaned = clean_nan_values(schema)
         sample_rows_cleaned = clean_nan_values(sample_rows)
 
+        # Convert DataFrame to CSV string for storage in MongoDB (production-safe)
+        import io
+        csv_buffer = io.StringIO()
+        df.to_csv(csv_buffer, index=False)
+        csv_content = csv_buffer.getvalue()
+        print(f"   CSV content generated: {len(csv_content)} bytes")
+
         # Update dataset in database
         update_data = {
             "row_count": row_count,
@@ -957,6 +980,7 @@ async def inspect_huggingface_dataset(dataset: dict, dataset_id: str, user_query
             "schema": schema_cleaned,
             "sample_data": sample_rows_cleaned,
             "target_column": target_column,
+            "csv_content": csv_content,  # Store CSV content in MongoDB
         }
 
         await mongodb.database["datasets"].update_one(
