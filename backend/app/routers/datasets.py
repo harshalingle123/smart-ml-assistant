@@ -309,34 +309,39 @@ async def upload_dataset(
         # This matches the format that works for Kaggle datasets
         print(f"\n[UPLOAD] Creating dataset document in MongoDB...")
 
-        dataset_dict = {
-            "user_id": current_user.id,
-            "name": file.filename or "Untitled Dataset",
-            "file_name": file.filename or "unknown.csv",
-            "row_count": len(data_rows),
-            "column_count": len(headers),
-            "file_size": file_size,
-            "status": "ready",
-            "preview_data": preview_data,
-            "uploaded_at": datetime.utcnow(),
-            "source": "upload",
-            "kaggle_ref": None,
-            "download_path": None,
-            "schema": schema_cleaned if schema_cleaned else [],
-            "sample_data": sample_rows_cleaned if sample_rows_cleaned else [],
-            "target_column": target_column if target_column else None,
-        }
+        new_dataset = Dataset(
+            user_id=current_user.id,
+            name=file.filename or "Untitled Dataset",
+            file_name=file.filename or "unknown.csv",
+            row_count=len(data_rows),
+            column_count=len(headers),
+            file_size=file_size,
+            status="ready",
+            preview_data=preview_data,
+            uploaded_at=datetime.utcnow(),
+            source="upload",
+            kaggle_ref=None,
+            huggingface_dataset_id=None,
+            huggingface_url=None,
+            download_path=None,
+            column_schema=schema_cleaned if schema_cleaned else [],
+            sample_data=sample_rows_cleaned if sample_rows_cleaned else [],
+            target_column=target_column if target_column else None,
+        )
+
+        dataset_dict = new_dataset.model_dump(by_alias=False, exclude={'id'})
 
         # DEBUG: Log what we're saving to MongoDB
         print(f"\n[UPLOAD DEBUG] MongoDB document structure:")
-        print(f"  - user_id: {dataset_dict['user_id']}")
+        print(f"  - user_id type: {type(dataset_dict['user_id'])}")
+        print(f"  - user_id value: {dataset_dict['user_id']}")
         print(f"  - name: {dataset_dict['name']}")
         print(f"  - row_count: {dataset_dict['row_count']}")
         print(f"  - column_count: {dataset_dict['column_count']}")
         print(f"  - file_size: {dataset_dict['file_size']}")
         print(f"  - status: {dataset_dict['status']}")
-        print(f"  - schema: {len(dataset_dict['schema'])} columns")
-        print(f"  - sample_data: {len(dataset_dict['sample_data'])} rows")
+        print(f"  - schema: {len(dataset_dict.get('schema', []))} columns")
+        print(f"  - sample_data: {len(dataset_dict.get('sample_data', []))} rows")
         print(f"  - target_column: {dataset_dict['target_column']}")
 
         result = await mongodb.database["datasets"].insert_one(dataset_dict)
@@ -347,6 +352,8 @@ async def upload_dataset(
         # DEBUG: Verify what was actually saved to MongoDB
         saved_doc = await mongodb.database["datasets"].find_one({"_id": result.inserted_id})
         print(f"\n[UPLOAD DEBUG] VERIFICATION - Document in MongoDB:")
+        print(f"  - '_id' type: {type(saved_doc.get('_id'))}")
+        print(f"  - 'user_id' type: {type(saved_doc.get('user_id'))}")
         print(f"  - 'schema' field exists: {'schema' in saved_doc}")
         print(f"  - 'schema' value: {type(saved_doc.get('schema'))}")
         print(f"  - 'schema' length: {len(saved_doc.get('schema', [])) if saved_doc.get('schema') else 0}")
@@ -549,7 +556,7 @@ async def add_dataset_from_kaggle(
             )
 
             # Add Kaggle metadata
-            dataset_dict = new_dataset.model_dump(by_alias=True, mode='json')
+            dataset_dict = new_dataset.model_dump(by_alias=False, exclude={'id'})
             dataset_dict["source"] = "kaggle"
             dataset_dict["kaggle_ref"] = request.dataset_ref
             dataset_dict["download_path"] = download_path
@@ -577,7 +584,7 @@ async def add_dataset_from_kaggle(
             )
 
             # Add Kaggle metadata
-            dataset_dict = new_dataset.model_dump(by_alias=True, mode='json')
+            dataset_dict = new_dataset.model_dump(by_alias=False, exclude={'id'})
             dataset_dict["source"] = "kaggle"
             dataset_dict["kaggle_ref"] = request.dataset_ref
             dataset_dict["download_path"] = None
@@ -670,25 +677,25 @@ async def add_dataset_from_huggingface(
 
         # Create dataset document with pending status
         # HuggingFace datasets are loaded on-demand using the datasets library
-        dataset_dict = {
-            "user_id": current_user.id,
-            "name": request.dataset_name,
-            "source": "huggingface",
-            "file_name": f"{request.dataset_name.replace('/', '_')}.hf",  # Virtual file name for HuggingFace datasets
-            "file_size": 0,  # Size unknown until loaded
-            "row_count": 0,  # Will be updated when dataset is loaded
-            "column_count": 0,  # Will be updated when dataset is loaded
-            "uploaded_at": datetime.utcnow(),
-            "status": "pending",  # Will be updated when dataset is loaded
-            "huggingface_url": request.dataset_url,
-            "huggingface_dataset_id": request.dataset_name,
-            "download_path": None,  # Will be set when dataset is downloaded/cached
-            "schema": [],
-            "sampleData": [],
-            "preview_data": {"headers": [], "rows": []},
-            "target_column": None,
-            "description": f"HuggingFace dataset: {request.dataset_name}"
-        }
+        new_dataset = Dataset(
+            user_id=current_user.id,
+            name=request.dataset_name,
+            source="huggingface",
+            file_name=f"{request.dataset_name.replace('/', '_')}.hf",
+            file_size=0,
+            row_count=0,
+            column_count=0,
+            uploaded_at=datetime.utcnow(),
+            status="pending",
+            preview_data={"headers": [], "rows": []},
+            column_schema=[],
+            sample_data=[],
+            target_column=None,
+        )
+        dataset_dict = new_dataset.model_dump(by_alias=False, exclude={'id'})
+        dataset_dict["huggingface_url"] = request.dataset_url
+        dataset_dict["huggingface_dataset_id"] = request.dataset_name
+        dataset_dict["download_path"] = None
 
         # Save to database
         insert_result = await mongodb.database["datasets"].insert_one(dataset_dict)

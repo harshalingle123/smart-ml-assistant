@@ -109,6 +109,8 @@ class Dataset(BaseModel):
     uploaded_at: datetime = Field(default_factory=datetime.utcnow)
     source: Optional[str] = None
     kaggle_ref: Optional[str] = None
+    huggingface_dataset_id: Optional[str] = None
+    huggingface_url: Optional[str] = None
     download_path: Optional[str] = None
     column_schema: Optional[List[Any]] = Field(default=None, alias="schema", serialization_alias="schema")
     sample_data: Optional[List[Any]] = Field(default=None)

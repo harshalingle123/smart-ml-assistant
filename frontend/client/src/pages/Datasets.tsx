@@ -10,12 +10,24 @@ import { useLocation } from "wouter";
 interface Dataset {
   id: string;
   name: string;
+  fileName?: string;
   description?: string;
   size?: string;
-  rows?: number;
-  columns?: number;
+  rowCount?: number;
+  columnCount?: number;
+  fileSize?: number;
   format?: string;
+  status?: string;
   uploadedAt?: string;
+  previewData?: any;
+  source?: string;
+  kaggleRef?: string;
+  huggingfaceDatasetId?: string;
+  huggingfaceUrl?: string;
+  downloadPath?: string;
+  schema?: any;
+  sampleData?: any;
+  targetColumn?: string;
   [key: string]: any;
 }
 
@@ -42,22 +54,47 @@ export default function Datasets() {
       setLoading(true);
       console.log("[Datasets] Fetching datasets from API...");
       const response = await getDatasets();
-      console.log("[Datasets] API Response:", response);
+      console.log("[Datasets] Raw API Response:", response);
+      console.log("[Datasets] Response type:", typeof response);
+      console.log("[Datasets] Is Array:", Array.isArray(response));
 
       // Backend returns array directly, not { datasets: [] }
       const datasetsList = Array.isArray(response) ? response : (response.datasets || []);
       console.log("[Datasets] Dataset list length:", datasetsList.length);
+      console.log("[Datasets] Dataset list:", datasetsList);
 
-      // Map _id to id if needed
-      const mappedDatasets = datasetsList.map((ds: any) => ({
-        ...ds,
-        id: ds.id || ds._id, // Ensure id field is set
-      }));
+      // Map _id to id if needed, and ensure all ObjectId fields are converted to strings
+      const mappedDatasets = datasetsList.map((ds: any, index: number) => {
+        console.log(`[Datasets] Processing dataset ${index}:`, ds);
 
-      console.log("[Datasets] Loaded datasets:", mappedDatasets.length);
+        // Convert ObjectId to string for id field
+        const id = typeof ds.id === 'string' ? ds.id :
+                   (ds._id && typeof ds._id === 'object' && '$oid' in ds._id) ? ds._id.$oid :
+                   ds._id?.toString() || ds.id?.toString() || '';
+
+        const mapped = {
+          ...ds,
+          id,
+          _id: undefined, // Remove _id to avoid confusion
+        };
+
+        console.log(`[Datasets] Mapped dataset ${index}:`, mapped);
+        return mapped;
+      });
+
+      console.log("[Datasets] Total loaded datasets:", mappedDatasets.length);
       if (mappedDatasets.length > 0) {
-        console.log("[Datasets] First dataset:", mappedDatasets[0]);
+        console.log("[Datasets] First dataset details:", {
+          id: mappedDatasets[0].id,
+          name: mappedDatasets[0].name,
+          status: mappedDatasets[0].status,
+          source: mappedDatasets[0].source,
+          kaggleRef: mappedDatasets[0].kaggleRef,
+          rowCount: mappedDatasets[0].rowCount,
+          columnCount: mappedDatasets[0].columnCount,
+        });
       }
+
       setDatasets(mappedDatasets);
     } catch (error) {
       console.error("[Datasets] Failed to load datasets:", error);
@@ -263,22 +300,30 @@ export default function Datasets() {
         <div className="flex flex-col items-center justify-center h-64 border-2 border-dashed rounded-lg">
           <Upload className="h-12 w-12 text-muted-foreground mb-4" />
           <h3 className="text-lg font-semibold mb-2">No datasets yet</h3>
-          <p className="text-muted-foreground mb-4">Upload a CSV file to get started</p>
+          <p className="text-muted-foreground mb-4">Upload a CSV file or add from Kaggle/HuggingFace</p>
           <Button onClick={handleUploadClick}>
             <Upload className="h-4 w-4 mr-1" />
             Upload Your First Dataset
           </Button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-          {datasets.map((dataset) => (
-            <DatasetCard
-              key={dataset.id}
-              dataset={dataset}
-              onDownload={handleDownload}
-              onDelete={handleDelete}
-            />
-          ))}
+        <div>
+          <div className="mb-4 text-sm text-muted-foreground">
+            Showing {datasets.length} dataset{datasets.length !== 1 ? 's' : ''}
+          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+            {datasets.map((dataset, index) => {
+              console.log(`[Datasets Render] Rendering dataset ${index}:`, dataset.id, dataset.name);
+              return (
+                <DatasetCard
+                  key={dataset.id || `dataset-${index}`}
+                  dataset={dataset}
+                  onDownload={handleDownload}
+                  onDelete={handleDelete}
+                />
+              );
+            })}
+          </div>
         </div>
       )}
     </div>

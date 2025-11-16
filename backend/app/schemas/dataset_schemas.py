@@ -28,6 +28,8 @@ class DatasetResponse(BaseModel):
     uploaded_at: datetime = Field(serialization_alias="uploadedAt")
     source: Optional[str] = None
     kaggle_ref: Optional[str] = Field(default=None, serialization_alias="kaggleRef")
+    huggingface_dataset_id: Optional[str] = Field(default=None, serialization_alias="huggingfaceDatasetId")
+    huggingface_url: Optional[str] = Field(default=None, serialization_alias="huggingfaceUrl")
     download_path: Optional[str] = Field(default=None, serialization_alias="downloadPath")
     schema: Optional[list] = None
     sample_data: Optional[list] = Field(default=None, serialization_alias="sampleData")

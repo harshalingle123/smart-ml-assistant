@@ -36,8 +36,10 @@ export function KaggleDatasetCard({ dataset, chatId, onDatasetAdded }: KaggleDat
         const response = await getDatasets();
         const datasetsList = Array.isArray(response) ? response : (response.datasets || []);
 
-        // Check if any dataset has the same kaggle_ref
-        const exists = datasetsList.some((ds: any) => ds.kaggle_ref === dataset.ref);
+        // Check if any dataset has the same kaggle_ref (check both snake_case and camelCase)
+        const exists = datasetsList.some((ds: any) =>
+          (ds.kaggleRef === dataset.ref) || (ds.kaggle_ref === dataset.ref)
+        );
 
         if (exists) {
           console.log(`Dataset ${dataset.ref} already exists in collection`);

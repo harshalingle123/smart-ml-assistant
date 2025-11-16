@@ -15,10 +15,23 @@ interface DatasetCardProps {
  * Normalizes dataset object to handle both snake_case and camelCase field formats
  */
 const normalizeDataset = (dataset: any): Dataset => {
-  console.log('DatasetCard - Raw dataset received:', dataset);
+  console.log('[DatasetCard] Raw dataset received:', {
+    id: dataset.id,
+    _id: dataset._id,
+    name: dataset.name,
+    status: dataset.status,
+    source: dataset.source,
+    kaggleRef: dataset.kaggleRef,
+    kaggle_ref: dataset.kaggle_ref,
+  });
+
+  // Handle ObjectId conversion for id field
+  const id = typeof dataset.id === 'string' ? dataset.id :
+             (dataset._id && typeof dataset._id === 'object' && '$oid' in dataset._id) ? dataset._id.$oid :
+             dataset._id?.toString() || dataset.id?.toString() || '';
 
   const normalized = {
-    id: dataset.id || dataset._id || '',
+    id,
     name: dataset.name || 'Unnamed Dataset',
     rowCount: dataset.rowCount ?? dataset.row_count ?? 0,
     columnCount: dataset.columnCount ?? dataset.column_count ?? 0,
@@ -29,11 +42,22 @@ const normalizeDataset = (dataset: any): Dataset => {
     fileName: dataset.fileName ?? dataset.file_name ?? null,
     kaggleRef: dataset.kaggleRef ?? dataset.kaggle_ref ?? null,
     huggingfaceRef: dataset.huggingfaceRef ?? dataset.huggingface_ref ?? null,
+    huggingfaceDatasetId: dataset.huggingfaceDatasetId ?? dataset.huggingface_dataset_id ?? null,
+    huggingfaceUrl: dataset.huggingfaceUrl ?? dataset.huggingface_url ?? null,
+    source: dataset.source ?? null,
     description: dataset.description ?? null,
     schema: dataset.schema ?? null,
   } as Dataset;
 
-  console.log('DatasetCard - Normalized dataset:', normalized);
+  console.log('[DatasetCard] Normalized dataset:', {
+    id: normalized.id,
+    name: normalized.name,
+    status: normalized.status,
+    source: normalized.source,
+    kaggleRef: normalized.kaggleRef,
+    rowCount: normalized.rowCount,
+    columnCount: normalized.columnCount,
+  });
 
   return normalized;
 };
@@ -51,21 +75,30 @@ export function DatasetCard({ dataset: rawDataset, onDownload, onDelete }: Datas
     <Card className="hover-elevate" data-testid={`card-dataset-${dataset.id}`}>
       <CardHeader>
         <div className="flex items-start justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <FileText className="h-5 w-5 text-muted-foreground" />
-            <CardTitle className="text-lg font-semibold">{dataset.name}</CardTitle>
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            <FileText className="h-5 w-5 text-muted-foreground flex-shrink-0" />
+            <CardTitle className="text-lg font-semibold truncate">{dataset.name}</CardTitle>
           </div>
-          <Badge
-            variant={dataset.status === "ready" ? "default" : dataset.status === "pending_download" ? "outline" : "secondary"}
-            className="text-xs"
-          >
-            {dataset.status === "processing" && (
-              <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+          <div className="flex gap-1 flex-shrink-0">
+            {dataset.source && (
+              <Badge variant="secondary" className="text-xs">
+                {dataset.source === 'kaggle' ? 'Kaggle' :
+                 dataset.source === 'huggingface' ? 'HF' :
+                 dataset.source}
+              </Badge>
             )}
-            {dataset.status === "ready" && <CheckCircle2 className="h-3 w-3 mr-1" />}
-            {dataset.status === "pending_download" && <Link2 className="h-3 w-3 mr-1" />}
-            {dataset.status === "pending_download" ? "Linked" : dataset.status}
-          </Badge>
+            <Badge
+              variant={dataset.status === "ready" ? "default" : dataset.status === "pending_download" ? "outline" : "secondary"}
+              className="text-xs"
+            >
+              {dataset.status === "processing" && (
+                <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+              )}
+              {dataset.status === "ready" && <CheckCircle2 className="h-3 w-3 mr-1" />}
+              {dataset.status === "pending_download" && <Link2 className="h-3 w-3 mr-1" />}
+              {dataset.status === "pending_download" ? "Linked" : dataset.status}
+            </Badge>
+          </div>
         </div>
       </CardHeader>
 

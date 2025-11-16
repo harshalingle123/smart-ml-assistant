@@ -251,6 +251,7 @@ export const getDatasets = async () => {
     });
 
     console.log('[API] Response status:', response.status);
+    console.log('[API] Response headers:', Object.fromEntries(response.headers.entries()));
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -259,7 +260,16 @@ export const getDatasets = async () => {
     }
 
     const data = await response.json();
-    console.log('[API] Datasets fetched successfully:', data.length);
+    console.log('[API] Datasets fetched successfully, count:', Array.isArray(data) ? data.length : 'not an array');
+    console.log('[API] First dataset sample:', data && data.length > 0 ? {
+      id: data[0].id,
+      name: data[0].name,
+      status: data[0].status,
+      source: data[0].source,
+      kaggleRef: data[0].kaggleRef,
+      rowCount: data[0].rowCount,
+    } : 'no datasets');
+    console.log('[API] Full response data:', data);
     return data;
   } catch (error) {
     console.error('[API] Network error:', error);

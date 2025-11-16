@@ -30,10 +30,12 @@ export function HuggingFaceDatasetCard({ dataset, chatId, onDatasetAdded }: Hugg
         const response = await getDatasets();
         const datasetsList = Array.isArray(response) ? response : (response.datasets || []);
 
-        // Check if any dataset has the same HuggingFace dataset ID
+        // Check if any dataset has the same HuggingFace dataset ID (check both snake_case and camelCase)
         const exists = datasetsList.some((ds: any) =>
           ds.source === "huggingface" &&
-          (ds.huggingface_dataset_id === dataset.name || ds.name === dataset.name)
+          (ds.huggingfaceDatasetId === dataset.name ||
+           ds.huggingface_dataset_id === dataset.name ||
+           ds.name === dataset.name)
         );
 
         if (exists) {
