@@ -11,6 +11,24 @@ function getAuthHeaders(): HeadersInit {
   return headers;
 }
 
+export const checkBackendHealth = async (): Promise<boolean> => {
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+
+    const response = await fetch(`${BASE_URL}/health`, {
+      method: "GET",
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+    return response.ok;
+  } catch (error) {
+    console.error('[API] Backend health check failed:', error);
+    return false;
+  }
+}
+
 export const getApiKeys = async () => {
   const response = await fetch(`${BASE_URL}/api/apikeys`, {
     headers: getAuthHeaders()
@@ -126,15 +144,36 @@ export const getModelSampleData = async (modelId: string, count: number = 3) => 
 
 // Chat API
 export const createChat = async (data: { title: string; model_id?: string; dataset_id?: string }) => {
-  const response = await fetch(`${BASE_URL}/api/chats`, {
-    method: "POST",
-    headers: getAuthHeaders(),
-    body: JSON.stringify(data),
-  });
-  if (!response.ok) {
-    throw new Error("Failed to create chat");
+  try {
+    console.log('[API] Creating chat for training...', data);
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout for chat creation
+
+    const response = await fetch(`${BASE_URL}/api/chats`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+      body: JSON.stringify(data),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: "Failed to create chat" }));
+      throw new Error(error.detail || `Failed to create chat: ${response.status}`);
+    }
+
+    const result = await response.json();
+    console.log('[API] Chat created successfully:', result);
+    return result;
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error('Request timeout. Please check your connection and try again.');
+    }
+    console.error('[API] Create chat error:', error);
+    throw error;
   }
-  return response.json();
 };
 
 export const getChats = async () => {

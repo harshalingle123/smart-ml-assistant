@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, ArrowLeft, Download, Target, Table2, FileText, CheckCircle, Brain } from "lucide-react";
-import { getDatasets, inspectDataset, checkKaggleStatus, updateDataset, createChat } from "@/lib/api";
+import { getDatasets, inspectDataset, checkKaggleStatus, updateDataset, createChat, checkBackendHealth } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import {
   Select,
@@ -51,6 +51,8 @@ export default function DatasetDetails() {
   const [kaggleConfigured, setKaggleConfigured] = useState<boolean>(false);
   const [checkingKaggle, setCheckingKaggle] = useState(true);
   const [training, setTraining] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
+  const MAX_RETRIES = 2;
   const { toast } = useToast();
 
   useEffect(() => {
@@ -192,20 +194,67 @@ export default function DatasetDetails() {
     try {
       setTraining(true);
 
-      // Create or get chat for this dataset
-      const chat = await createChat({
-        title: `Training: ${dataset.name}`,
-        dataset_id: dataset.id,
-      });
+      // 1. Check backend connectivity first
+      console.log('[Training] Checking backend health...');
+      const isHealthy = await checkBackendHealth();
+      if (!isHealthy) {
+        throw new Error('Backend server is not responding. Please try again later.');
+      }
 
-      // Get the chat ID from response
+      // 2. Create or get chat for this dataset
+      console.log('[Training] Creating chat for dataset:', dataset.id);
+
+      let chat;
+      try {
+        chat = await createChat({
+          title: `Training: ${dataset.name}`,
+          dataset_id: dataset.id,
+        });
+      } catch (chatError) {
+        console.error('[Training] Chat creation failed:', chatError);
+
+        // Handle retry logic for Failed to fetch errors
+        if (chatError instanceof Error && chatError.message.includes('Failed to fetch') && retryCount < MAX_RETRIES) {
+          console.log(`[Training] Retry attempt ${retryCount + 1}/${MAX_RETRIES}`);
+          setRetryCount(prev => prev + 1);
+
+          toast({
+            title: "Retrying...",
+            description: `Connection failed. Retrying (${retryCount + 1}/${MAX_RETRIES})...`,
+          });
+
+          // Wait 2 seconds before retry
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          return handleTrainModel(); // Recursive retry
+        }
+
+        // Provide specific error message
+        if (chatError instanceof Error) {
+          if (chatError.message.includes('timeout')) {
+            throw new Error('Connection timeout. Please check your internet connection and try again.');
+          } else if (chatError.message.includes('CORS')) {
+            throw new Error('Server configuration error. Please contact support.');
+          } else {
+            throw new Error(`Failed to initialize training: ${chatError.message}`);
+          }
+        } else {
+          throw new Error('Failed to initialize training. Please try again.');
+        }
+      }
+
+      // 3. Get the chat ID from response
       const chatId = chat._id || chat.id;
 
       if (!chatId) {
-        throw new Error("Failed to get chat ID from response");
+        throw new Error("Failed to get chat ID from response. Please try again.");
       }
 
-      // Navigate to chat page with dataset and training params
+      console.log('[Training] Chat created successfully:', chatId);
+
+      // Reset retry count on success
+      setRetryCount(0);
+
+      // 4. Navigate to chat page with dataset and training params
       setLocation(`/?chat=${chatId}&dataset=${dataset.id}&train=true`);
 
       toast({
@@ -213,10 +262,26 @@ export default function DatasetDetails() {
         description: "Opening chat view to show live progress...",
       });
     } catch (error) {
-      console.error("Failed to start training:", error);
+      console.error("[Training] Failed to start training:", error);
+
+      // Show user-friendly error message
+      let errorMessage = "Failed to start training. Please try again.";
+
+      if (error instanceof Error) {
+        if (error.message.includes('timeout')) {
+          errorMessage = "Connection timeout. Please check your internet connection.";
+        } else if (error.message.includes('not responding')) {
+          errorMessage = "Backend server is not responding. Please try again in a few moments.";
+        } else if (error.message.includes('Failed to fetch')) {
+          errorMessage = "Network error. Please check your connection and try again.";
+        } else {
+          errorMessage = error.message;
+        }
+      }
+
       toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to start training",
+        title: "Training Error",
+        description: errorMessage,
         variant: "destructive",
       });
     } finally {

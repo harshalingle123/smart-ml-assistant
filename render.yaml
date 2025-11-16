@@ -4,7 +4,7 @@ services:
     name: smart-ml-backend
     runtime: python
     buildCommand: cd backend && pip install -r requirements.txt
-    startCommand: cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    startCommand: cd backend && uvicorn app.main:app --host 0.0.0.0 --port $PORT --timeout-keep-alive 120
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.0
@@ -32,6 +32,16 @@ services:
         value: claude-3-5-sonnet-20241022
       - key: CLAUDE_MAX_TOKENS
         value: 4096
+      - key: GOOGLE_GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
+      - key: KAGGLE_USERNAME
+        sync: false
+      - key: KAGGLE_KEY
+        sync: false
+      - key: MAX_UPLOAD_SIZE
+        value: 524288000
     healthCheckPath: /health
 
   # Frontend Static Site

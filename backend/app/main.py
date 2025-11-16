@@ -1,9 +1,12 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from app.core.config import settings
 from app.middleware import LoggingMiddleware, RequestSizeLimitMiddleware
 from app.routers import auth, chats, messages, datasets, models, finetune, apikeys, kaggle, ml, prebuilt_models, deployments, training_jobs, direct_access, model_api, usage_dashboard, automl
 from app.mongodb import mongodb
+from starlette.middleware.base import BaseHTTPMiddleware
+import asyncio
 
 # IMPORTANT: Configure multipart limits BEFORE creating FastAPI app
 # This fixes the "field larger than field limit" error
@@ -24,6 +27,19 @@ if hasattr(FormParser, 'DEFAULT_CONFIG'):
 # Set Starlette's max_file_size
 starlette.formparsers.MultiPartParser.max_file_size = settings.MAX_UPLOAD_SIZE
 
+class TimeoutMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        try:
+            if '/api/messages/agent' in str(request.url) or '/automl' in str(request.url) or '/api/automl' in str(request.url):
+                return await asyncio.wait_for(call_next(request), timeout=600.0)
+            else:
+                return await asyncio.wait_for(call_next(request), timeout=120.0)
+        except asyncio.TimeoutError:
+            return JSONResponse(
+                status_code=504,
+                content={"detail": "Request timeout. Training may continue in background."}
+            )
+
 app = FastAPI(
     title="Dual Query Intelligence API",
     description="Backend API for dual query intelligence platform with chat, dataset management, and model fine-tuning",
@@ -40,14 +56,24 @@ print(f"[CONFIG] MultiPartParser max_file_size: {starlette.formparsers.MultiPart
 print(f"[CONFIG] UploadFile spool_max_size: {StarletteUploadFile.spool_max_size / (1024 * 1024):.0f} MB")
 print(f"[CONFIG] python-multipart File and Field classes patched for large uploads")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.cors_origins_list,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+if settings.ENVIRONMENT == "production":
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origin_regex=r"https://.*\.(onrender\.com|netlify\.app|vercel\.app)$|https://darshix\.com",
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+else:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origins_list,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
+app.add_middleware(TimeoutMiddleware)
 app.add_middleware(RequestSizeLimitMiddleware)
 app.add_middleware(LoggingMiddleware)
 
@@ -89,7 +115,13 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy"}
+    cors_info = "regex pattern for *.onrender.com, *.netlify.app, *.vercel.app, darshix.com" if settings.ENVIRONMENT == "production" else str(settings.cors_origins_list[:3])
+    return {
+        "status": "healthy",
+        "environment": settings.ENVIRONMENT,
+        "cors_config": cors_info,
+        "api_version": "1.0.0"
+    }
 
 
 @app.get("/api/config/csv-limits")
