@@ -31,6 +31,12 @@ interface Dataset {
     nullCount?: number;
     uniqueCount?: number;
   }>;
+  columnSchema?: Array<{
+    name: string;
+    dtype: string;
+    nullCount?: number;
+    uniqueCount?: number;
+  }>;
   sampleData?: Array<Record<string, any>>;
   targetColumn?: string;
 }
@@ -75,11 +81,19 @@ export default function DatasetDetails() {
 
       const found = datasetsList.find((ds: any) => (ds._id || ds.id) === id);
       if (found) {
-        const mappedDataset = { ...found, id: found.id || found._id };
+        // Normalize schema field (handle both 'schema' and 'columnSchema')
+        const schema = found.schema || found.columnSchema || [];
 
-        // Debug: Log dataset structure
+        const mappedDataset = {
+          ...found,
+          id: found.id || found._id,
+          schema: schema,
+        };
+
         console.log("[DatasetDetails] Loaded dataset:", mappedDataset);
         console.log("[DatasetDetails] Schema:", mappedDataset.schema);
+        console.log("[DatasetDetails] Schema source:", found.schema ? 'schema' : found.columnSchema ? 'columnSchema' : 'none');
+        console.log("[DatasetDetails] Schema length:", schema.length);
         console.log("[DatasetDetails] Sample Data:", mappedDataset.sampleData);
         console.log("[DatasetDetails] Target Column:", mappedDataset.targetColumn);
 

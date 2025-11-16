@@ -112,7 +112,7 @@ class Dataset(BaseModel):
     huggingface_dataset_id: Optional[str] = None
     huggingface_url: Optional[str] = None
     download_path: Optional[str] = None
-    column_schema: Optional[List[Any]] = Field(default=None, alias="schema", serialization_alias="schema")
+    schema: Optional[List[Any]] = Field(default=None)
     sample_data: Optional[List[Any]] = Field(default=None)
     target_column: Optional[str] = Field(default=None)
 

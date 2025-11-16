@@ -324,7 +324,7 @@ async def upload_dataset(
             huggingface_dataset_id=None,
             huggingface_url=None,
             download_path=None,
-            column_schema=schema_cleaned if schema_cleaned else [],
+            schema=schema_cleaned if schema_cleaned else [],
             sample_data=sample_rows_cleaned if sample_rows_cleaned else [],
             target_column=target_column if target_column else None,
         )
@@ -688,7 +688,7 @@ async def add_dataset_from_huggingface(
             uploaded_at=datetime.utcnow(),
             status="pending",
             preview_data={"headers": [], "rows": []},
-            column_schema=[],
+            schema=[],
             sample_data=[],
             target_column=None,
         )
