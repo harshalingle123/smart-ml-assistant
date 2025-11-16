@@ -56,22 +56,19 @@ print(f"[CONFIG] MultiPartParser max_file_size: {starlette.formparsers.MultiPart
 print(f"[CONFIG] UploadFile spool_max_size: {StarletteUploadFile.spool_max_size / (1024 * 1024):.0f} MB")
 print(f"[CONFIG] python-multipart File and Field classes patched for large uploads")
 
-if settings.ENVIRONMENT == "production":
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origin_regex=r"https://.*\.(onrender\.com|netlify\.app|vercel\.app)$|https://darshix\.com",
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-else:
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=settings.cors_origins_list,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+# CORS Configuration
+# In production, use explicit origins from CORS_ORIGINS env var
+# This allows proper control via Render dashboard environment variables
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins_list,  # Use env var in both dev and prod
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Log CORS configuration for debugging
+print(f"[CONFIG] CORS Origins: {settings.cors_origins_list}")
 
 app.add_middleware(TimeoutMiddleware)
 app.add_middleware(RequestSizeLimitMiddleware)
