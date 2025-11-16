@@ -100,18 +100,18 @@ async def event_generator(dataset_id: str, chat_id: str) -> AsyncGenerator[str, 
             })
             return
 
-        yield event({"type": "status", "message": "🤖 AutoGluon: Initializing..."})
+        yield event({"type": "status", "message": "🤖 AutoML: Initializing..."})
         await asyncio.sleep(1)
 
-        # Import AutoGluon (lazy import to avoid startup overhead)
+        # Import AutoGluon library (lazy import to avoid startup overhead)
         use_autogluon = False
         TabularPredictor = None
         try:
             from autogluon.tabular import TabularPredictor
             use_autogluon = True
-            yield event({"type": "status", "message": "✅ AutoGluon loaded successfully"})
+            yield event({"type": "status", "message": "✅ AutoML loaded successfully"})
         except ImportError:
-            error_msg = "AutoGluon not installed. Using simulation mode..."
+            error_msg = "AutoML not installed. Using simulation mode..."
             yield event({"type": "status", "message": f"⚠️ {error_msg}"})
             await mongodb.database.messages.insert_one({
                 "chat_id": ObjectId(chat_id),
@@ -119,7 +119,7 @@ async def event_generator(dataset_id: str, chat_id: str) -> AsyncGenerator[str, 
                 "content": f"⚠️ {error_msg}",
                 "timestamp": datetime.utcnow()
             })
-            yield event({"type": "status", "message": "📦 Using lightweight training mode (AutoGluon not available)"})
+            yield event({"type": "status", "message": "📦 Using lightweight training mode (AutoML not available)"})
             await asyncio.sleep(1)
 
         yield event({"type": "status", "message": "🔧 Preparing data..."})
@@ -182,16 +182,16 @@ async def event_generator(dataset_id: str, chat_id: str) -> AsyncGenerator[str, 
         is_classification = df[target_column].dtype == 'object' or df[target_column].nunique() < 20
 
         if use_autogluon and TabularPredictor:
-            # REAL AutoGluon training
+            # REAL AutoML training
             try:
                 # Create model directory
                 model_path = f"backend/models/{dataset_id}"
                 os.makedirs(model_path, exist_ok=True)
 
-                yield event({"type": "status", "message": "🚀 Starting AutoGluon training with real ML models..."})
+                yield event({"type": "status", "message": "🚀 Starting AutoML training with real ML models..."})
                 await asyncio.sleep(0.5)
 
-                # Train with AutoGluon
+                # Train with AutoML engine
                 predictor = TabularPredictor(
                     label=target_column,
                     path=model_path,
@@ -238,8 +238,8 @@ async def event_generator(dataset_id: str, chat_id: str) -> AsyncGenerator[str, 
                     }
 
             except Exception as ag_error:
-                # If AutoGluon fails, fall back to simulation
-                yield event({"type": "status", "message": f"⚠️ AutoGluon training error: {str(ag_error)}"})
+                # If AutoML fails, fall back to simulation
+                yield event({"type": "status", "message": f"⚠️ AutoML training error: {str(ag_error)}"})
                 yield event({"type": "status", "message": "📦 Falling back to simulation mode..."})
                 use_autogluon = False
 

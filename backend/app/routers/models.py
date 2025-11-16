@@ -211,11 +211,11 @@ async def predict_with_model(
             detail=f"Model is not ready for predictions. Current status: {model.get('status')}"
         )
 
-    # Check if real AutoGluon model is available
+    # Check if real AutoML model is available
     task_type = model.get("task_type", "classification")
 
     if model.get("uses_real_model") and model.get("model_path"):
-        # Load and use REAL AutoGluon model
+        # Load and use REAL AutoML model
         try:
             from autogluon.tabular import TabularPredictor
             import pandas as pd

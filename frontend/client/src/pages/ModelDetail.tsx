@@ -414,7 +414,7 @@ export default function ModelDetail() {
                     </div>
                     {prediction.uses_real_model && (
                       <Badge variant="outline" className="bg-blue-500/10 text-blue-600 border-blue-500/20">
-                        Real AutoGluon Model
+                        Real AutoML Model
                       </Badge>
                     )}
                     {prediction.uses_real_model === false && (

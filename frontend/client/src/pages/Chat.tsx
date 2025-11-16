@@ -552,7 +552,7 @@ export default function Chat() {
           {isLoading && (
             <div className="flex items-center gap-2 text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
-              <span className="text-sm">Gemini is thinking...</span>
+              <span className="text-sm">AutoML is thinking...</span>
             </div>
           )}
         </div>
