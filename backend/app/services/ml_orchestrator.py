@@ -12,7 +12,15 @@ class MLOrchestrator:
         self.model = None
         if settings.GOOGLE_GEMINI_API_KEY:
             genai.configure(api_key=settings.GOOGLE_GEMINI_API_KEY)
-            self.model = genai.GenerativeModel(settings.GEMINI_MODEL)
+            try:
+                self.model = genai.GenerativeModel(settings.GEMINI_MODEL)
+            except Exception as e:
+                print(f"Failed to load {settings.GEMINI_MODEL}, falling back to gemini-1.5-flash: {e}")
+                try:
+                    self.model = genai.GenerativeModel("gemini-1.5-flash")
+                except Exception as e2:
+                    print(f"Failed to load gemini-1.5-flash, trying gemini-pro: {e2}")
+                    self.model = genai.GenerativeModel("gemini-pro")
 
     def is_available(self) -> bool:
         return self.model is not None

@@ -35,7 +35,7 @@ services:
       - key: GOOGLE_GEMINI_API_KEY
         sync: false
       - key: GEMINI_MODEL
-        value: gemini-2.5-flash
+        value: gemini-1.5-flash
       - key: KAGGLE_USERNAME
         sync: false
       - key: KAGGLE_KEY

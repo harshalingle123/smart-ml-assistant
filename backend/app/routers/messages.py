@@ -304,10 +304,22 @@ Would you like to use any of these datasets? I can help you download and add the
         return MessageResponse(**response_dict)
 
     except Exception as e:
-        # If Claude fails, still return the user message but with error info
+        # Check if it's a quota/rate limit error
+        error_str = str(e).lower()
+        is_quota_error = any(keyword in error_str for keyword in [
+            'quota', 'rate limit', 'resource exhausted', '429',
+            'exceeded', 'billing', 'free tier'
+        ])
+
+        # Return user-friendly message based on error type
+        if is_quota_error:
+            error_message = "We're experiencing high demand at the moment. For assistance, please contact us at info@darshix.com"
+        else:
+            error_message = "We're experiencing technical difficulties. Please try again or contact us at info@darshix.com for support."
+
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to generate AI response: {str(e)}"
+            detail=error_message
         )
 
 
@@ -530,7 +542,20 @@ async def chat_with_gemini_agent(
         # Clean up user message if indexer fails
         await mongodb.database["messages"].delete_one({"_id": user_message.id})
 
+        # Check if it's a quota/rate limit error
+        error_str = str(e).lower()
+        is_quota_error = any(keyword in error_str for keyword in [
+            'quota', 'rate limit', 'resource exhausted', '429',
+            'exceeded', 'billing', 'free tier'
+        ])
+
+        # Return user-friendly message based on error type
+        if is_quota_error:
+            error_message = "We're experiencing high demand at the moment. For assistance, please contact us at info@darshix.com"
+        else:
+            error_message = "We're experiencing technical difficulties. Please try again or contact us at info@darshix.com for support."
+
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to process with Gemini Indexer: {str(e)}"
+            detail=error_message
         )

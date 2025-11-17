@@ -9,7 +9,15 @@ class GeminiService:
         self.model = None
         if settings.GOOGLE_GEMINI_API_KEY:
             genai.configure(api_key=settings.GOOGLE_GEMINI_API_KEY)
-            self.model = genai.GenerativeModel(settings.GEMINI_MODEL)
+            try:
+                self.model = genai.GenerativeModel(settings.GEMINI_MODEL)
+            except Exception as e:
+                print(f"Failed to load {settings.GEMINI_MODEL}, falling back to gemini-1.5-flash: {e}")
+                try:
+                    self.model = genai.GenerativeModel("gemini-1.5-flash")
+                except Exception as e2:
+                    print(f"Failed to load gemini-1.5-flash, trying gemini-pro: {e2}")
+                    self.model = genai.GenerativeModel("gemini-pro")
 
     def is_available(self) -> bool:
         return self.model is not None
@@ -56,7 +64,18 @@ unique patterns that could benefit from custom model training."""
             return response.text
 
         except Exception as e:
-            raise Exception(f"Error calling Gemini API: {str(e)}")
+            # Check if it's a quota/rate limit error
+            error_str = str(e).lower()
+            is_quota_error = any(keyword in error_str for keyword in [
+                'quota', 'rate limit', 'resource exhausted', '429',
+                'exceeded', 'billing', 'free tier'
+            ])
+
+            # Return user-friendly message based on error type
+            if is_quota_error:
+                raise Exception("We're experiencing high demand at the moment. For assistance, please contact us at info@darshix.com")
+            else:
+                raise Exception("We're experiencing technical difficulties. Please try again or contact us at info@darshix.com for support.")
 
     async def analyze_dataset_query(self, user_message: str) -> Dict[str, any]:
         user_lower = user_message.lower()

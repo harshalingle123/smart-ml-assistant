@@ -27,7 +27,7 @@ class Settings(BaseSettings):
 
     # Google Gemini Configuration (Primary AI)
     GOOGLE_GEMINI_API_KEY: Optional[str] = None
-    GEMINI_MODEL: str = "gemini-2.5-flash"  # Fast and free model
+    GEMINI_MODEL: str = "gemini-1.5-flash"  # Fast and free model
 
     # Kaggle API Configuration
     KAGGLE_USERNAME: Optional[str] = None

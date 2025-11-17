@@ -17,10 +17,10 @@ class SimpleGeminiIndexer:
             genai.configure(api_key=settings.GOOGLE_GEMINI_API_KEY)
 
             # System prompt for the indexer
-            self.system_prompt = """You are a Specialized ML/AI Resource Indexer.
+            self.system_prompt = """You are a Specialized ML/AI Resource Indexer and Assistant.
 
 OBJECTIVE:
-Search for and strictly index Machine Learning and AI resources (datasets and models) relevant to the user's query.
+Search for and index Machine Learning and AI resources (datasets and models) relevant to the user's query, and provide a helpful, conversational response.
 
 STRICT OPERATIONAL RULES:
 
@@ -44,6 +44,7 @@ STRICT OPERATIONAL RULES:
 REQUIRED JSON SCHEMA:
 {
   "query": "The user's original search query (string)",
+  "user_message": "A friendly, helpful message describing what you found. Be conversational and concise. If you found datasets/models, mention that they're displayed below as interactive cards. Don't list the datasets/models in the message - just provide context and guidance. Keep it under 3 sentences.",
   "data_sources": {
     "kaggle_datasets": [
       {
@@ -68,7 +69,7 @@ REQUIRED JSON SCHEMA:
 
 CRITICAL: The response must be parseable as JSON. Do NOT include markdown code blocks, explanations, or any text outside the JSON structure.
 
-For each user query, provide relevant, real resources from Kaggle and HuggingFace that match their needs. Use your knowledge to suggest appropriate datasets and models."""
+For each user query, provide relevant, real resources from Kaggle and HuggingFace that match their needs. The user_message should be friendly and guide the user on what to do next (e.g., "I've found some great datasets for house price prediction! You can browse them below, click to add them to your collection, or start training a model right away.")"""
 
             # Create model with system instruction (no tools)
             try:
@@ -76,12 +77,21 @@ For each user query, provide relevant, real resources from Kaggle and HuggingFac
                     model_name=settings.GEMINI_MODEL,
                     system_instruction=self.system_prompt
                 )
-            except Exception:
-                # Fallback to gemini-pro
-                self.model = genai.GenerativeModel(
-                    model_name="gemini-pro",
-                    system_instruction=self.system_prompt
-                )
+            except Exception as e:
+                print(f"Failed to load {settings.GEMINI_MODEL}, falling back to gemini-1.5-flash: {e}")
+                # Fallback to gemini-1.5-flash
+                try:
+                    self.model = genai.GenerativeModel(
+                        model_name="gemini-1.5-flash",
+                        system_instruction=self.system_prompt
+                    )
+                except Exception as e2:
+                    print(f"Failed to load gemini-1.5-flash, trying gemini-pro: {e2}")
+                    # Final fallback to gemini-pro
+                    self.model = genai.GenerativeModel(
+                        model_name="gemini-pro",
+                        system_instruction=self.system_prompt
+                    )
 
     def is_available(self) -> bool:
         """Check if the indexer is configured and ready"""
@@ -137,14 +147,7 @@ For each user query, provide relevant, real resources from Kaggle and HuggingFac
                             "huggingface_models": []
                         }
                     },
-                    "response": json.dumps({
-                        "query": user_query,
-                        "data_sources": {
-                            "kaggle_datasets": [],
-                            "huggingface_datasets": [],
-                            "huggingface_models": []
-                        }
-                    }, indent=2),
+                    "response": "I couldn't find specific resources for your query. Try rephrasing your request or ask me about a different ML task!",
                     "success": True
                 }
 
@@ -215,9 +218,25 @@ For each user query, provide relevant, real resources from Kaggle and HuggingFac
             print(f"HuggingFace datasets: {len(data_sources['huggingface_datasets'])}")
             print(f"HuggingFace models: {len(data_sources['huggingface_models'])}")
 
+            # Extract user-friendly message from JSON or create a default one
+            user_message = json_data.get("user_message", "")
+
+            # If no user_message in JSON, create a friendly default message
+            if not user_message:
+                total_resources = (
+                    len(data_sources['kaggle_datasets']) +
+                    len(data_sources['huggingface_datasets']) +
+                    len(data_sources['huggingface_models'])
+                )
+
+                if total_resources > 0:
+                    user_message = f"I've found {total_resources} relevant resources for your query! Browse the datasets and models below - you can click on any card to view details or add them to your collection."
+                else:
+                    user_message = "I couldn't find specific resources for your query. Try rephrasing your request or ask me about a different ML task!"
+
             return {
                 "json_data": json_data,
-                "response": json.dumps(json_data, indent=2),
+                "response": user_message,  # User-friendly message for chat display
                 "success": True
             }
 
@@ -226,7 +245,20 @@ For each user query, provide relevant, real resources from Kaggle and HuggingFac
             import traceback
             traceback.print_exc()
 
-            # Return empty structure on error
+            # Check if it's a quota/rate limit error
+            error_str = str(e).lower()
+            is_quota_error = any(keyword in error_str for keyword in [
+                'quota', 'rate limit', 'resource exhausted', '429',
+                'exceeded', 'billing', 'free tier'
+            ])
+
+            # Return user-friendly message based on error type
+            if is_quota_error:
+                friendly_message = "We're experiencing high demand at the moment. For assistance, please contact us at info@darshix.com"
+            else:
+                friendly_message = "We're experiencing technical difficulties. Please try again or contact us at info@darshix.com for support."
+
+            # Return empty structure on error with user-friendly message
             return {
                 "json_data": {
                     "query": user_query,
@@ -236,7 +268,7 @@ For each user query, provide relevant, real resources from Kaggle and HuggingFac
                         "huggingface_models": []
                     }
                 },
-                "response": f"Error processing query: {str(e)}",
+                "response": friendly_message,
                 "success": False,
                 "error": str(e)
             }

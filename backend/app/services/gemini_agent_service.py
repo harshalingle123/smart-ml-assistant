@@ -89,20 +89,30 @@ For each of the 5 datasets, you must:
 4.  *Provide a concise description* detailing the data type and label quality"""
 
             # Create model with tools
-            # Try to use settings model first, fallback to gemini-pro if it doesn't work
+            # Try to use settings model first, fallback if it doesn't work
             try:
                 self.model = genai.GenerativeModel(
                     model_name=settings.GEMINI_MODEL,
                     tools=self.tools,
                     system_instruction=self.system_prompt
                 )
-            except Exception:
-                # Fallback to gemini-pro which supports function calling
-                self.model = genai.GenerativeModel(
-                    model_name="gemini-pro",
-                    tools=self.tools,
-                    system_instruction=self.system_prompt
-                )
+            except Exception as e:
+                print(f"Failed to load {settings.GEMINI_MODEL}, falling back to gemini-1.5-flash: {e}")
+                # Fallback to gemini-1.5-flash which supports function calling
+                try:
+                    self.model = genai.GenerativeModel(
+                        model_name="gemini-1.5-flash",
+                        tools=self.tools,
+                        system_instruction=self.system_prompt
+                    )
+                except Exception as e2:
+                    print(f"Failed to load gemini-1.5-flash, trying gemini-pro: {e2}")
+                    # Final fallback to gemini-pro which supports function calling
+                    self.model = genai.GenerativeModel(
+                        model_name="gemini-pro",
+                        tools=self.tools,
+                        system_instruction=self.system_prompt
+                    )
 
     def is_available(self) -> bool:
         """Check if the agent is configured and ready"""
@@ -460,8 +470,22 @@ For each of the 5 datasets, you must:
             print(f"Agent error: {str(e)}")
             import traceback
             traceback.print_exc()
+
+            # Check if it's a quota/rate limit error
+            error_str = str(e).lower()
+            is_quota_error = any(keyword in error_str for keyword in [
+                'quota', 'rate limit', 'resource exhausted', '429',
+                'exceeded', 'billing', 'free tier'
+            ])
+
+            # Return user-friendly message based on error type
+            if is_quota_error:
+                friendly_message = "We're experiencing high demand at the moment. For assistance, please contact us at info@darshix.com"
+            else:
+                friendly_message = "We're experiencing technical difficulties. Please try again or contact us at info@darshix.com for support."
+
             return {
-                "response": f"I encountered an error: {str(e)}",
+                "response": friendly_message,
                 "function_calls": [],
                 "function_responses": [],
                 "success": False,
