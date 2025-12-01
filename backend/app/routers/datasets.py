@@ -8,6 +8,7 @@ import pandas as pd
 import numpy as np
 import math
 import sys
+import gc
 from pathlib import Path
 from datetime import datetime
 from app.mongodb import mongodb
@@ -15,6 +16,7 @@ from app.models.mongodb_models import User, Dataset
 from app.schemas.dataset_schemas import DatasetCreate, DatasetResponse
 from app.dependencies import get_current_user
 from app.services.kaggle_service import kaggle_service
+from app.utils.memory import force_garbage_collection, log_memory_usage
 from bson import ObjectId
 
 router = APIRouter(prefix="/api/datasets", tags=["Datasets"])
@@ -235,11 +237,13 @@ async def upload_dataset(
         # Generate schema and sample data using pandas for better type detection
         print(f"[UPLOAD] Generating schema and sample data...")
         print(f"[UPLOAD] About to call pd.read_csv with {min(1000, len(data_rows))} rows")
+        log_memory_usage("Before schema generation")
         try:
             # Use pandas for schema generation (limit to first 1000 rows for large files)
             print(f"[UPLOAD] Calling pd.read_csv now...")
             df = pd.read_csv(io.StringIO(decoded), nrows=min(1000, len(data_rows)))
             print(f"[UPLOAD] pd.read_csv SUCCESS! Got {len(df)} rows, {len(df.columns)} columns")
+            log_memory_usage("After loading DataFrame")
 
             # Build schema with types, null counts, unique counts
             schema = []
@@ -327,7 +331,7 @@ async def upload_dataset(
             schema=schema_cleaned if schema_cleaned else [],
             sample_data=sample_rows_cleaned if sample_rows_cleaned else [],
             target_column=target_column if target_column else None,
-            csv_content=decoded,  # Store full CSV content in MongoDB
+            # csv_content removed to reduce memory usage - files stored on disk only
         )
 
         dataset_dict = new_dataset.model_dump(by_alias=False, exclude={'id'})
@@ -398,6 +402,11 @@ async def upload_dataset(
             {"$inc": {"datasets_count": 1}}
         )
         print(f"[UPLOAD] ✓ User dataset count updated")
+
+        # Clean up memory before returning
+        del df, decoded, contents
+        force_garbage_collection()
+        log_memory_usage("After cleanup")
 
         print("\n" + "="*80)
         print(f"[UPLOAD] ✓✓✓ UPLOAD COMPLETED SUCCESSFULLY ✓✓✓")
@@ -497,20 +506,9 @@ async def add_dataset_from_kaggle(
             csv_file_path = csv_files[0]
             file_size = csv_file_path.stat().st_size
 
-            # Read full CSV content to store in MongoDB (production-safe)
-            csv_content = None
-            try:
-                with open(csv_file_path, 'r', encoding='utf-8') as f:
-                    csv_content = f.read()
-            except UnicodeDecodeError:
-                try:
-                    with open(csv_file_path, 'r', encoding='latin-1') as f:
-                        csv_content = f.read()
-                except Exception:
-                    with open(csv_file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                        csv_content = f.read()
-
             # Load sample (first 1000 rows for metadata) with encoding fallback
+            # Note: We don't store full CSV in MongoDB anymore to reduce memory usage
+            log_memory_usage("Before loading Kaggle dataset")
             try:
                 df = pd.read_csv(csv_file_path, nrows=1000, encoding='utf-8')
             except UnicodeDecodeError:
@@ -520,6 +518,7 @@ async def add_dataset_from_kaggle(
                 except Exception:
                     # Final fallback: ignore errors
                     df = pd.read_csv(csv_file_path, nrows=1000, encoding='utf-8', errors='ignore')
+            log_memory_usage("After loading Kaggle dataset")
 
             # Build complete metadata
             row_count = len(df)
@@ -574,10 +573,15 @@ async def add_dataset_from_kaggle(
             dataset_dict["source"] = "kaggle"
             dataset_dict["kaggle_ref"] = request.dataset_ref
             dataset_dict["download_path"] = download_path
-            dataset_dict["csv_content"] = csv_content  # Store CSV content in MongoDB
+            # csv_content removed to reduce memory usage - files stored on disk only
 
             print(f"[ADD_KAGGLE] Fully inspected: {row_count} rows, {col_count} cols, target: {target_column}")
-            print(f"[ADD_KAGGLE] CSV content stored: {len(csv_content) if csv_content else 0} bytes")
+            print(f"[ADD_KAGGLE] Dataset metadata created, file stored at: {download_path}")
+
+            # Clean up memory
+            del df
+            force_garbage_collection()
+            log_memory_usage("After Kaggle cleanup")
 
         else:
             # CASE 2: Kaggle API not configured - save metadata only
@@ -963,12 +967,8 @@ async def inspect_huggingface_dataset(dataset: dict, dataset_id: str, user_query
         schema_cleaned = clean_nan_values(schema)
         sample_rows_cleaned = clean_nan_values(sample_rows)
 
-        # Convert DataFrame to CSV string for storage in MongoDB (production-safe)
-        import io
-        csv_buffer = io.StringIO()
-        df.to_csv(csv_buffer, index=False)
-        csv_content = csv_buffer.getvalue()
-        print(f"   CSV content generated: {len(csv_content)} bytes")
+        # Note: We don't store full CSV in MongoDB to reduce memory usage
+        # HuggingFace datasets are loaded on-demand from the hub
 
         # Update dataset in database
         update_data = {
@@ -980,7 +980,7 @@ async def inspect_huggingface_dataset(dataset: dict, dataset_id: str, user_query
             "schema": schema_cleaned,
             "sample_data": sample_rows_cleaned,
             "target_column": target_column,
-            "csv_content": csv_content,  # Store CSV content in MongoDB
+            # csv_content removed to reduce memory usage
         }
 
         await mongodb.database["datasets"].update_one(
@@ -989,6 +989,11 @@ async def inspect_huggingface_dataset(dataset: dict, dataset_id: str, user_query
         )
 
         print(f"   ✅ Successfully inspected HuggingFace dataset: {row_count} rows, {col_count} columns")
+
+        # Clean up memory
+        del df, hf_data
+        force_garbage_collection()
+        log_memory_usage("After HuggingFace cleanup")
 
         return {
             "huggingface_dataset_id": hf_dataset_id,

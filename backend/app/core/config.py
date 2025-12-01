@@ -11,9 +11,26 @@ class Settings(BaseSettings):
     CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
     ENVIRONMENT: str = "development"
 
-    # File Upload Configuration
-    MAX_UPLOAD_SIZE: int = 500 * 1024 * 1024  # 500 MB default
-    MAX_UPLOAD_SIZE_MB: int = 500  # For display purposes
+    # File Upload Configuration (environment-dependent)
+    # Set conservative defaults, will be overridden based on environment
+    MAX_UPLOAD_SIZE: int = 20 * 1024 * 1024  # Default: 20 MB
+    MAX_UPLOAD_SIZE_MB: int = 20  # For display purposes
+
+    # Dataset Processing Limits (memory-efficient)
+    MAX_DATASET_ROWS_IN_MEMORY: int = 1000  # Max rows to load at once
+    MAX_SAMPLE_ROWS: int = 100  # Max sample rows for display
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # Override limits based on environment
+        if self.ENVIRONMENT == "production":
+            # Production: Strict limits for 512MB RAM instances (Render free tier)
+            self.MAX_UPLOAD_SIZE = 20 * 1024 * 1024  # 20 MB
+            self.MAX_UPLOAD_SIZE_MB = 20
+        else:
+            # Development: More generous limits
+            self.MAX_UPLOAD_SIZE = 100 * 1024 * 1024  # 100 MB
+            self.MAX_UPLOAD_SIZE_MB = 100
 
     # Google OAuth
     GOOGLE_CLIENT_ID: Optional[str] = None

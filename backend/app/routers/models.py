@@ -380,12 +380,16 @@ async def get_sample_data(
     # Load sample data from dataset
     try:
         import pandas as pd
+        import io
         from pathlib import Path
 
         print(f"\n🔍 Loading sample data for model: {model.get('name')}")
         print(f"   Dataset ID: {dataset_id}")
         print(f"   Dataset Name: {dataset.get('name')}")
         print(f"   Dataset Source: {dataset.get('source')}")
+
+        # Load from file system (memory-efficient approach)
+        print(f"   📂 Loading data from file system")
 
         # Get dataset file path
         if dataset.get("source") == "upload":
@@ -411,14 +415,14 @@ async def get_sample_data(
             file_path = str(csv_files[0])
             print(f"   ✅ Found CSV file: {file_path}")
 
-        # Read dataset with encoding fallback
+        # Read dataset with encoding fallback - use nrows to limit memory usage
         try:
-            df = pd.read_csv(file_path, encoding='utf-8')
+            df = pd.read_csv(file_path, nrows=100, encoding='utf-8')  # Limit to 100 rows for samples
         except UnicodeDecodeError:
             try:
-                df = pd.read_csv(file_path, encoding='latin-1')
+                df = pd.read_csv(file_path, nrows=100, encoding='latin-1')
             except Exception:
-                df = pd.read_csv(file_path, encoding='utf-8', errors='ignore')
+                df = pd.read_csv(file_path, nrows=100, encoding='utf-8', errors='ignore')
 
         print(f"   ✅ CSV loaded: {len(df)} rows, {len(df.columns)} columns")
         print(f"   Columns: {list(df.columns)[:10]}")  # Show first 10 columns

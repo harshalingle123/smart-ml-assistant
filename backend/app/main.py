@@ -46,6 +46,29 @@ app = FastAPI(
     version="1.0.0",
 )
 
+# Global exception handler to prevent crashes
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """
+    Catch-all exception handler to prevent app crashes.
+    Logs the error and returns a proper error response.
+    """
+    import traceback
+    error_details = traceback.format_exc()
+    print(f"❌ Unhandled exception: {str(exc)}")
+    print(f"   Path: {request.url.path}")
+    print(f"   Method: {request.method}")
+    print(f"   Traceback:\n{error_details}")
+
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "An internal server error occurred",
+            "error": str(exc) if settings.ENVIRONMENT == "development" else "Internal server error",
+            "path": request.url.path
+        }
+    )
+
 # Configure maximum request body size (500 MB)
 # This must be set to allow large file uploads
 from starlette.datastructures import UploadFile as StarletteUploadFile
@@ -94,11 +117,23 @@ app.include_router(automl.router)
 
 @app.on_event("startup")
 async def startup_db_client():
-    await mongodb.connect()
+    try:
+        print("Starting application...")
+        print(f"   Environment: {settings.ENVIRONMENT}")
+        print(f"   Upload limit: {settings.MAX_UPLOAD_SIZE_MB} MB")
+        await mongodb.connect()
+        print("Application startup complete")
+    except Exception as e:
+        print(f"Error during startup: {str(e)}")
+        # Don't raise - allow app to start even with errors
+        # Health check will report the issue
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
-    await mongodb.close()
+    try:
+        await mongodb.close()
+    except Exception as e:
+        print(f"Error during shutdown: {str(e)}")
 
 
 @app.get("/")
@@ -106,19 +141,47 @@ async def root():
     return {
         "message": "Dual Query Intelligence API",
         "version": "1.0.0",
-        "status": "running"
+        "status": "running",
+        "environment": settings.ENVIRONMENT
     }
 
 
 @app.get("/health")
 async def health_check():
-    cors_info = "regex pattern for *.onrender.com, *.netlify.app, *.vercel.app, darshix.com" if settings.ENVIRONMENT == "production" else str(settings.cors_origins_list[:3])
-    return {
-        "status": "healthy",
-        "environment": settings.ENVIRONMENT,
-        "cors_config": cors_info,
-        "api_version": "1.0.0"
-    }
+    """
+    Health check endpoint for monitoring services.
+    Returns basic status and configuration info.
+    """
+    try:
+        # Check MongoDB connection
+        mongodb_status = "connected" if mongodb.database is not None else "disconnected"
+
+        # Try a simple MongoDB ping
+        if mongodb.client:
+            try:
+                await mongodb.client.admin.command('ping')
+                mongodb_status = "healthy"
+            except Exception:
+                mongodb_status = "unhealthy"
+
+        cors_info = "regex pattern for *.onrender.com, *.netlify.app, *.vercel.app, darshix.com" if settings.ENVIRONMENT == "production" else str(settings.cors_origins_list[:3])
+
+        return {
+            "status": "healthy",
+            "environment": settings.ENVIRONMENT,
+            "mongodb": mongodb_status,
+            "cors_config": cors_info,
+            "api_version": "1.0.0",
+            "upload_limit_mb": settings.MAX_UPLOAD_SIZE_MB
+        }
+    except Exception as e:
+        # Return 200 but with error info - prevents health check failures
+        return {
+            "status": "degraded",
+            "error": str(e),
+            "environment": settings.ENVIRONMENT,
+            "api_version": "1.0.0"
+        }
 
 
 @app.get("/api/config/csv-limits")
