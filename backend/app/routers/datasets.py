@@ -313,6 +313,10 @@ async def upload_dataset(
         # This matches the format that works for Kaggle datasets
         print(f"\n[UPLOAD] Creating dataset document in MongoDB...")
 
+        # In production, store CSV content for ephemeral filesystem
+        from app.core.config import settings
+        csv_content_to_store = decoded if settings.ENVIRONMENT == "production" else None
+
         new_dataset = Dataset(
             user_id=current_user.id,
             name=file.filename or "Untitled Dataset",
@@ -331,10 +335,16 @@ async def upload_dataset(
             schema=schema_cleaned if schema_cleaned else [],
             sample_data=sample_rows_cleaned if sample_rows_cleaned else [],
             target_column=target_column if target_column else None,
-            # csv_content removed to reduce memory usage - files stored on disk only
         )
 
+        if csv_content_to_store:
+            print(f"[UPLOAD] Storing CSV content in MongoDB: {len(csv_content_to_store)} bytes (production mode)")
+
         dataset_dict = new_dataset.model_dump(by_alias=False, exclude={'id'})
+
+        # Store CSV content if in production mode
+        if csv_content_to_store:
+            dataset_dict["csv_content"] = csv_content_to_store
 
         # DEBUG: Log what we're saving to MongoDB
         print(f"\n[UPLOAD DEBUG] MongoDB document structure:")
@@ -506,9 +516,28 @@ async def add_dataset_from_kaggle(
             csv_file_path = csv_files[0]
             file_size = csv_file_path.stat().st_size
 
-            # Load sample (first 1000 rows for metadata) with encoding fallback
-            # Note: We don't store full CSV in MongoDB anymore to reduce memory usage
-            log_memory_usage("Before loading Kaggle dataset")
+            # Read full CSV content for production (ephemeral filesystem)
+            # In production, files get deleted on restart, so we must store in MongoDB
+            from app.core.config import settings
+            csv_content = None
+
+            if settings.ENVIRONMENT == "production":
+                log_memory_usage("Before reading full CSV for production")
+                try:
+                    with open(csv_file_path, 'r', encoding='utf-8') as f:
+                        csv_content = f.read()
+                except UnicodeDecodeError:
+                    try:
+                        with open(csv_file_path, 'r', encoding='latin-1') as f:
+                            csv_content = f.read()
+                    except Exception:
+                        with open(csv_file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                            csv_content = f.read()
+                print(f"[ADD_KAGGLE] CSV content stored: {len(csv_content) if csv_content else 0} bytes for production")
+                log_memory_usage("After reading full CSV")
+
+            # Load sample (first 1000 rows for metadata)
+            log_memory_usage("Before loading Kaggle dataset sample")
             try:
                 df = pd.read_csv(csv_file_path, nrows=1000, encoding='utf-8')
             except UnicodeDecodeError:
@@ -518,7 +547,7 @@ async def add_dataset_from_kaggle(
                 except Exception:
                     # Final fallback: ignore errors
                     df = pd.read_csv(csv_file_path, nrows=1000, encoding='utf-8', errors='ignore')
-            log_memory_usage("After loading Kaggle dataset")
+            log_memory_usage("After loading Kaggle dataset sample")
 
             # Build complete metadata
             row_count = len(df)
@@ -573,7 +602,13 @@ async def add_dataset_from_kaggle(
             dataset_dict["source"] = "kaggle"
             dataset_dict["kaggle_ref"] = request.dataset_ref
             dataset_dict["download_path"] = download_path
-            # csv_content removed to reduce memory usage - files stored on disk only
+
+            # Store CSV content in production for ephemeral filesystem
+            if csv_content:
+                dataset_dict["csv_content"] = csv_content
+                print(f"[ADD_KAGGLE] CSV content stored in MongoDB: {len(csv_content)} bytes")
+            else:
+                print(f"[ADD_KAGGLE] CSV content not stored (development mode, using filesystem)")
 
             print(f"[ADD_KAGGLE] Fully inspected: {row_count} rows, {col_count} cols, target: {target_column}")
             print(f"[ADD_KAGGLE] Dataset metadata created, file stored at: {download_path}")
@@ -967,8 +1002,15 @@ async def inspect_huggingface_dataset(dataset: dict, dataset_id: str, user_query
         schema_cleaned = clean_nan_values(schema)
         sample_rows_cleaned = clean_nan_values(sample_rows)
 
-        # Note: We don't store full CSV in MongoDB to reduce memory usage
-        # HuggingFace datasets are loaded on-demand from the hub
+        # In production, store CSV content for ephemeral filesystem
+        from app.core.config import settings
+        csv_content = None
+        if settings.ENVIRONMENT == "production":
+            import io
+            csv_buffer = io.StringIO()
+            df.to_csv(csv_buffer, index=False)
+            csv_content = csv_buffer.getvalue()
+            print(f"   CSV content generated for production: {len(csv_content)} bytes")
 
         # Update dataset in database
         update_data = {
@@ -980,8 +1022,11 @@ async def inspect_huggingface_dataset(dataset: dict, dataset_id: str, user_query
             "schema": schema_cleaned,
             "sample_data": sample_rows_cleaned,
             "target_column": target_column,
-            # csv_content removed to reduce memory usage
         }
+
+        # Store CSV content if in production
+        if csv_content:
+            update_data["csv_content"] = csv_content
 
         await mongodb.database["datasets"].update_one(
             {"_id": ObjectId(dataset_id)},
