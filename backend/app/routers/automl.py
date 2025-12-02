@@ -216,13 +216,19 @@ async def event_generator(dataset_id: str, chat_id: str) -> AsyncGenerator[str, 
                     eval_metric='accuracy' if is_classification else 'r2'
                 )
 
-                # Train (with time limit for demo - 60 seconds)
-                predictor.fit(
-                    train_data=df,
-                    time_limit=60,  # 1 minute for quick demo
-                    presets='medium_quality',  # Use medium quality for faster training
-                    verbosity=2
-                )
+                # Train in executor to avoid blocking event loop (critical for health checks)
+                loop = asyncio.get_event_loop()
+                def train_model():
+                    predictor.fit(
+                        train_data=df,
+                        time_limit=60,  # 1 minute for quick demo
+                        presets='medium_quality',  # Use medium quality for faster training
+                        verbosity=2
+                    )
+                    return predictor
+
+                yield event({"type": "status", "message": "⚙️ Training in progress (this won't block the server)..."})
+                predictor = await loop.run_in_executor(None, train_model)
 
                 yield event({"type": "status", "message": "📊 Training complete! Evaluating models..."})
 
@@ -230,29 +236,29 @@ async def event_generator(dataset_id: str, chat_id: str) -> AsyncGenerator[str, 
                 leaderboard = predictor.leaderboard()
                 best_model = leaderboard.iloc[0]['model']
 
-                # Get metrics
-                if is_classification:
-                    from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
+                # Get metrics (run in executor to avoid blocking)
+                def calculate_metrics():
                     y_true = df[target_column]
                     y_pred = predictor.predict(df.drop(columns=[target_column]))
 
-                    metrics = {
-                        "accuracy": float(accuracy_score(y_true, y_pred)),
-                        "f1_score": float(f1_score(y_true, y_pred, average='weighted')),
-                        "precision": float(precision_score(y_true, y_pred, average='weighted')),
-                        "recall": float(recall_score(y_true, y_pred, average='weighted'))
-                    }
-                else:
-                    from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
-                    import numpy as np
-                    y_true = df[target_column]
-                    y_pred = predictor.predict(df.drop(columns=[target_column]))
+                    if is_classification:
+                        from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
+                        return {
+                            "accuracy": float(accuracy_score(y_true, y_pred)),
+                            "f1_score": float(f1_score(y_true, y_pred, average='weighted')),
+                            "precision": float(precision_score(y_true, y_pred, average='weighted')),
+                            "recall": float(recall_score(y_true, y_pred, average='weighted'))
+                        }
+                    else:
+                        from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
+                        import numpy as np
+                        return {
+                            "r2_score": float(r2_score(y_true, y_pred)),
+                            "mae": float(mean_absolute_error(y_true, y_pred)),
+                            "rmse": float(np.sqrt(mean_squared_error(y_true, y_pred)))
+                        }
 
-                    metrics = {
-                        "r2_score": float(r2_score(y_true, y_pred)),
-                        "mae": float(mean_absolute_error(y_true, y_pred)),
-                        "rmse": float(np.sqrt(mean_squared_error(y_true, y_pred)))
-                    }
+                metrics = await loop.run_in_executor(None, calculate_metrics)
 
             except Exception as ag_error:
                 # If AutoML fails, fall back to simulation

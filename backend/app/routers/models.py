@@ -220,63 +220,69 @@ async def predict_with_model(
             from autogluon.tabular import TabularPredictor
             import pandas as pd
             import numpy as np
+            import asyncio
 
-            # Load saved model
-            predictor = TabularPredictor.load(model["model_path"])
+            # Run model loading and prediction in executor to avoid blocking event loop
+            def make_prediction():
+                # Load saved model
+                predictor = TabularPredictor.load(model["model_path"])
 
-            # Convert input to DataFrame
-            input_df = pd.DataFrame([input_data])
+                # Convert input to DataFrame
+                input_df = pd.DataFrame([input_data])
 
-            # Make real prediction
-            prediction = predictor.predict(input_df)
-            prediction_value = prediction.iloc[0]
+                # Make real prediction
+                prediction = predictor.predict(input_df)
+                prediction_value = prediction.iloc[0]
 
-            # Get probabilities for classification or confidence for regression
-            if task_type == "classification":
-                # Get class probabilities
-                try:
-                    probabilities = predictor.predict_proba(input_df)
-                    prob_dict = probabilities.iloc[0].to_dict()
-                    confidence = float(max(prob_dict.values()))
+                # Get probabilities for classification or confidence for regression
+                if task_type == "classification":
+                    # Get class probabilities
+                    try:
+                        probabilities = predictor.predict_proba(input_df)
+                        prob_dict = probabilities.iloc[0].to_dict()
+                        confidence = float(max(prob_dict.values()))
 
-                    prediction_result = {
+                        return {
+                            "model_id": str(model["_id"]),
+                            "prediction": str(prediction_value),
+                            "confidence": confidence,
+                            "probabilities": {str(k): float(v) for k, v in prob_dict.items()},
+                            "input_data": input_data,
+                            "timestamp": datetime.utcnow().isoformat(),
+                            "uses_real_model": True
+                        }
+                    except Exception:
+                        # Fallback if predict_proba not available
+                        return {
+                            "model_id": str(model["_id"]),
+                            "prediction": str(prediction_value),
+                            "confidence": 0.95,
+                            "input_data": input_data,
+                            "timestamp": datetime.utcnow().isoformat(),
+                            "uses_real_model": True
+                        }
+                else:
+                    # Regression - calculate prediction interval
+                    prediction_float = float(prediction_value)
+
+                    # Calculate approximate prediction interval (±10% as estimate)
+                    margin = abs(prediction_float * 0.10)
+
+                    return {
                         "model_id": str(model["_id"]),
-                        "prediction": str(prediction_value),
-                        "confidence": confidence,
-                        "probabilities": {str(k): float(v) for k, v in prob_dict.items()},
+                        "prediction": prediction_float,
+                        "confidence": 0.95,  # Default confidence for regression
+                        "prediction_interval": {
+                            "lower": prediction_float - margin,
+                            "upper": prediction_float + margin
+                        },
                         "input_data": input_data,
                         "timestamp": datetime.utcnow().isoformat(),
                         "uses_real_model": True
                     }
-                except Exception:
-                    # Fallback if predict_proba not available
-                    prediction_result = {
-                        "model_id": str(model["_id"]),
-                        "prediction": str(prediction_value),
-                        "confidence": 0.95,
-                        "input_data": input_data,
-                        "timestamp": datetime.utcnow().isoformat(),
-                        "uses_real_model": True
-                    }
-            else:
-                # Regression - calculate prediction interval
-                prediction_float = float(prediction_value)
 
-                # Calculate approximate prediction interval (±10% as estimate)
-                margin = abs(prediction_float * 0.10)
-
-                prediction_result = {
-                    "model_id": str(model["_id"]),
-                    "prediction": prediction_float,
-                    "confidence": 0.95,  # Default confidence for regression
-                    "prediction_interval": {
-                        "lower": prediction_float - margin,
-                        "upper": prediction_float + margin
-                    },
-                    "input_data": input_data,
-                    "timestamp": datetime.utcnow().isoformat(),
-                    "uses_real_model": True
-                }
+            loop = asyncio.get_event_loop()
+            prediction_result = await loop.run_in_executor(None, make_prediction)
 
             return JSONResponse(content=prediction_result)
 

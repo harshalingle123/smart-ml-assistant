@@ -149,37 +149,35 @@ async def root():
 @app.get("/health")
 async def health_check():
     """
-    Health check endpoint for monitoring services.
-    Returns basic status and configuration info.
+    Ultra-lightweight health check endpoint for monitoring services.
+    Must respond within 2 seconds to pass Render health checks.
     """
     try:
-        # Check MongoDB connection
-        mongodb_status = "connected" if mongodb.database is not None else "disconnected"
-
-        # Try a simple MongoDB ping
+        # Quick MongoDB connection check with 1.5 second timeout
+        mongodb_status = "unknown"
         if mongodb.client:
             try:
-                await mongodb.client.admin.command('ping')
+                # Use asyncio.wait_for to enforce timeout
+                await asyncio.wait_for(
+                    mongodb.client.admin.command('ping'),
+                    timeout=1.5
+                )
                 mongodb_status = "healthy"
+            except asyncio.TimeoutError:
+                mongodb_status = "timeout"
             except Exception:
                 mongodb_status = "unhealthy"
 
-        cors_info = "regex pattern for *.onrender.com, *.netlify.app, *.vercel.app, darshix.com" if settings.ENVIRONMENT == "production" else str(settings.cors_origins_list[:3])
-
         return {
             "status": "healthy",
-            "environment": settings.ENVIRONMENT,
             "mongodb": mongodb_status,
-            "cors_config": cors_info,
-            "api_version": "1.0.0",
-            "upload_limit_mb": settings.MAX_UPLOAD_SIZE_MB
+            "api_version": "1.0.0"
         }
     except Exception as e:
         # Return 200 but with error info - prevents health check failures
         return {
             "status": "degraded",
             "error": str(e),
-            "environment": settings.ENVIRONMENT,
             "api_version": "1.0.0"
         }
 
