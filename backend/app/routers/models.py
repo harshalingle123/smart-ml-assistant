@@ -388,43 +388,59 @@ async def get_sample_data(
         print(f"   Dataset Name: {dataset.get('name')}")
         print(f"   Dataset Source: {dataset.get('source')}")
 
-        # Load from file system (memory-efficient approach)
-        print(f"   📂 Loading data from file system")
+        # Prioritize csv_content from MongoDB (production-safe)
+        csv_content = dataset.get("csv_content")
 
-        # Get dataset file path
-        if dataset.get("source") == "upload":
-            file_path = f"backend/data/{dataset_id}/{dataset['file_name']}"
-            print(f"   Upload file path: {file_path}")
-        else:
-            download_path = dataset.get("download_path")
-            print(f"   Download path: {download_path}")
-
-            if not download_path or not os.path.exists(download_path):
-                print(f"   ❌ ERROR: Download path not found or doesn't exist")
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=f"Dataset file not found at: {download_path}"
-                )
-            csv_files = list(Path(download_path).glob("*.csv"))
-            if not csv_files:
-                print(f"   ❌ ERROR: No CSV files in {download_path}")
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="No CSV files found in dataset"
-                )
-            file_path = str(csv_files[0])
-            print(f"   ✅ Found CSV file: {file_path}")
-
-        # Read dataset with encoding fallback - use nrows to limit memory usage
-        try:
-            df = pd.read_csv(file_path, nrows=100, encoding='utf-8')  # Limit to 100 rows for samples
-        except UnicodeDecodeError:
+        if csv_content:
+            # Load from MongoDB-stored CSV content (works in production)
+            print(f"   📦 Loading data from database (csv_content)")
             try:
-                df = pd.read_csv(file_path, nrows=100, encoding='latin-1')
-            except Exception:
-                df = pd.read_csv(file_path, nrows=100, encoding='utf-8', errors='ignore')
+                df = pd.read_csv(io.StringIO(csv_content), nrows=100, encoding='utf-8')
+            except UnicodeDecodeError:
+                try:
+                    df = pd.read_csv(io.StringIO(csv_content), nrows=100, encoding='latin-1')
+                except Exception:
+                    df = pd.read_csv(io.StringIO(csv_content), nrows=100, encoding='utf-8', errors='ignore')
+            print(f"   ✅ CSV loaded from database: {len(df)} rows, {len(df.columns)} columns")
+        else:
+            # Fallback to file system for backward compatibility
+            print(f"   📂 Loading data from file system (fallback)")
 
-        print(f"   ✅ CSV loaded: {len(df)} rows, {len(df.columns)} columns")
+            # Get dataset file path
+            if dataset.get("source") == "upload":
+                file_path = f"backend/data/{dataset_id}/{dataset['file_name']}"
+                print(f"   Upload file path: {file_path}")
+            else:
+                download_path = dataset.get("download_path")
+                print(f"   Download path: {download_path}")
+
+                if not download_path or not os.path.exists(download_path):
+                    print(f"   ❌ ERROR: Download path not found or doesn't exist")
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Dataset file not found. CSV content not available in database and filesystem path doesn't exist."
+                    )
+                csv_files = list(Path(download_path).glob("*.csv"))
+                if not csv_files:
+                    print(f"   ❌ ERROR: No CSV files in {download_path}")
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail="No CSV files found in dataset"
+                    )
+                file_path = str(csv_files[0])
+                print(f"   ✅ Found CSV file: {file_path}")
+
+            # Read dataset with encoding fallback - use nrows to limit memory usage
+            try:
+                df = pd.read_csv(file_path, nrows=100, encoding='utf-8')  # Limit to 100 rows for samples
+            except UnicodeDecodeError:
+                try:
+                    df = pd.read_csv(file_path, nrows=100, encoding='latin-1')
+                except Exception:
+                    df = pd.read_csv(file_path, nrows=100, encoding='utf-8', errors='ignore')
+
+            print(f"   ✅ CSV loaded from file: {len(df)} rows, {len(df.columns)} columns")
+
         print(f"   Columns: {list(df.columns)[:10]}")  # Show first 10 columns
 
         # Get target column
