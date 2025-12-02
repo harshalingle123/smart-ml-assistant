@@ -1,6 +1,7 @@
 import { User, Token } from "@/types/api";
+import { getApiUrl } from "./env";
 
-const BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const BASE_URL = getApiUrl();
 
 interface LoginCredentials {
   email: string;

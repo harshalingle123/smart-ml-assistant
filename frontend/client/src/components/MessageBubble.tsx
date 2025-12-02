@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
+import { getApiUrl } from "@/lib/env";
 
 interface MessageBubbleProps {
   role: "user" | "assistant";
@@ -43,7 +44,8 @@ export function MessageBubble({ role, content, queryType, timestamp, metadata }:
       });
 
       // Download model metadata as JSON
-      const response = await fetch(`http://localhost:8000/api/models/${metadata.model_id}`, {
+      const apiUrl = getApiUrl();
+      const response = await fetch(`${apiUrl}/api/models/${metadata.model_id}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
