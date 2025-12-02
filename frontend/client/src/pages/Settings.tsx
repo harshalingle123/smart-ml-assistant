@@ -14,6 +14,7 @@ import { getApiKeys, deleteApiKey, getModel, getModelSampleData } from "@/lib/ap
 import { getCurrentUser } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 import { Copy, CheckCircle2, Code } from "lucide-react";
+import { getApiUrl } from "@/lib/env";
 
 export default function Settings() {
   const queryClient = useQueryClient();
@@ -25,6 +26,9 @@ export default function Settings() {
   const [sampleData, setSampleData] = useState<{ [key: string]: any }>({});
   const [loadingExamples, setLoadingExamples] = useState<{ [key: string]: boolean }>({});
   const [currentUserEmail, setCurrentUserEmail] = useState<string>("your-email@example.com");
+
+  // Get API URL dynamically (production or localhost)
+  const apiUrl = getApiUrl();
 
   const { data: apiKeys, isLoading } = useQuery({
     queryKey: ["apiKeys"],
@@ -251,7 +255,7 @@ export default function Settings() {
 
 # Login to get JWT token
 login_response = requests.post(
-    "http://localhost:8000/api/auth/login",
+    "${apiUrl}/api/auth/login",
     json={
         "email": "${currentUserEmail}",  # Your email
         "password": "your-password"  # UPDATE THIS
@@ -272,7 +276,7 @@ model_id = "${modelId}"
 input_data = ${samples && samples.samples && samples.samples[0] ? JSON.stringify(samples.samples[0].input, null, 2) : '{\n    "text": "Your input here"\n}'}
 
 response = requests.post(
-    f"http://localhost:8000/api/models/{model_id}/predict",
+    f"${apiUrl}/api/models/{model_id}/predict",
     headers=headers,
     json=input_data
 )
@@ -296,13 +300,13 @@ if 'probabilities' in result:
                               <h4 className="text-sm font-semibold mb-2">cURL Example (ready to copy & run!)</h4>
                               <pre className="bg-background p-3 rounded text-xs overflow-x-auto border">
 {`# First, login to get token
-TOKEN=$(curl -X POST "http://localhost:8000/api/auth/login" \\
+TOKEN=$(curl -X POST "${apiUrl}/api/auth/login" \\
   -H "Content-Type: application/json" \\
   -d '{"email": "${currentUserEmail}", "password": "your-password"}' \\
   | jq -r '.access_token')
 
 # Make prediction
-curl -X POST "http://localhost:8000/api/models/${modelId}/predict" \\
+curl -X POST "${apiUrl}/api/models/${modelId}/predict" \\
   -H "Authorization: Bearer $TOKEN" \\
   -H "Content-Type: application/json" \\
   -d '${samples && samples.samples && samples.samples[0] ? JSON.stringify(samples.samples[0].input) : '{"text": "Your input here"}'}'`}
