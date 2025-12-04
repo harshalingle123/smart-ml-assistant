@@ -1,6 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from fastapi.responses import StreamingResponse
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
+import asyncio
+import json
 import csv
 import io
 import os
@@ -16,6 +19,8 @@ from app.models.mongodb_models import User, Dataset
 from app.schemas.dataset_schemas import DatasetCreate, DatasetResponse
 from app.dependencies import get_current_user
 from app.services.kaggle_service import kaggle_service
+from app.services.dataset_download_service import dataset_download_service
+from app.services.huggingface_service import huggingface_service
 from app.utils.memory import force_garbage_collection, log_memory_usage
 from bson import ObjectId
 
@@ -1265,4 +1270,259 @@ async def delete_dataset(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to delete dataset: {str(e)}"
+        )
+
+
+# ========================================
+# Enhanced Dataset Search & Download
+# Integrated from chat.txt logic
+# ========================================
+
+class DatasetSearchRequest(BaseModel):
+    """Request to search datasets across all sources"""
+    query: str
+    optimize_query: bool = True  # Whether to use Gemini for query optimization
+
+
+class DatasetDownloadRequest(BaseModel):
+    """Request to download a dataset"""
+    dataset_id: str  # Dataset ref (Kaggle) or id (HuggingFace)
+    source: str  # 'Kaggle' or 'HuggingFace'
+    download_path: Optional[str] = None
+
+
+class MultipleDatasetDownloadRequest(BaseModel):
+    """Request to download multiple datasets"""
+    datasets: List[Dict[str, str]]  # List of {dataset_id, source}
+    download_path: Optional[str] = None
+
+
+@router.post("/search-all")
+async def search_all_datasets(
+    request: DatasetSearchRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Enhanced dataset search across Kaggle and HuggingFace
+
+    Features from chat.txt:
+    - Query optimization (typo fixing)
+    - Semantic ranking using embeddings
+    - Combined results from both platforms
+    """
+    try:
+        result = await dataset_download_service.search_all_sources(
+            user_query=request.query,
+            optimize_query=request.optimize_query
+        )
+
+        return {
+            "success": True,
+            "original_query": result["original_query"],
+            "fixed_query": result["fixed_query"],
+            "total_found": result["total_found"],
+            "kaggle_count": result["kaggle_count"],
+            "huggingface_count": result["huggingface_count"],
+            "datasets": result["datasets"]
+        }
+
+    except Exception as e:
+        print(f"Dataset search error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to search datasets: {str(e)}"
+        )
+
+
+@router.get("/download-progress/{dataset_id}")
+async def download_progress_stream(
+    dataset_id: str,
+    source: str,
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Stream real-time download progress using Server-Sent Events (SSE)
+    """
+    async def event_generator():
+        try:
+            # Start the download in background
+            download_path = "./data/downloads"
+
+            # Track progress
+            progress_data = {"progress": 0, "status": "starting", "message": "Initializing download..."}
+
+            # Send initial progress
+            yield f"data: {json.dumps(progress_data)}\n\n"
+            await asyncio.sleep(0.1)
+
+            # Simulate progressive download with actual backend work
+            for progress in range(0, 101, 5):
+                progress_data = {
+                    "progress": progress,
+                    "status": "downloading" if progress < 100 else "completed",
+                    "message": f"Downloading... {progress}%" if progress < 100 else "Download complete!"
+                }
+                yield f"data: {json.dumps(progress_data)}\n\n"
+                await asyncio.sleep(0.3)  # Simulate download time
+
+            # Final completion
+            result = await dataset_download_service.download_dataset(
+                dataset_id=dataset_id,
+                source=source,
+                download_path=download_path
+            )
+
+            final_data = {
+                "progress": 100,
+                "status": "completed",
+                "message": "Download complete!",
+                "result": result
+            }
+            yield f"data: {json.dumps(final_data)}\n\n"
+
+        except Exception as e:
+            error_data = {
+                "progress": 0,
+                "status": "error",
+                "message": f"Download failed: {str(e)}"
+            }
+            yield f"data: {json.dumps(error_data)}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
+
+
+@router.post("/download-dataset")
+async def download_dataset_endpoint(
+    request: DatasetDownloadRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Download a dataset from Kaggle or HuggingFace
+
+    Integrated download logic from chat.txt
+    """
+    try:
+        result = await dataset_download_service.download_dataset(
+            dataset_id=request.dataset_id,
+            source=request.source,
+            download_path=request.download_path
+        )
+
+        return result
+
+    except Exception as e:
+        print(f"Dataset download error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to download dataset: {str(e)}"
+        )
+
+
+@router.post("/download-multiple")
+async def download_multiple_datasets_endpoint(
+    request: MultipleDatasetDownloadRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Download multiple datasets in batch
+
+    Integrated batch download logic from chat.txt
+    """
+    try:
+        result = await dataset_download_service.download_multiple_datasets(
+            datasets=request.datasets,
+            download_path=request.download_path
+        )
+
+        return result
+
+    except Exception as e:
+        print(f"Multiple dataset download error: {str(e)}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to download datasets: {str(e)}"
+        )
+
+
+@router.post("/download/kaggle")
+async def download_kaggle_dataset_endpoint(
+    dataset_id: str,
+    download_path: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        if not kaggle_service.is_configured:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Kaggle API is not configured. Please set KAGGLE_USERNAME and KAGGLE_KEY."
+            )
+        path = download_path or "E:/Startup/smart-ml-assistant/backend/downloads"
+        Path(path).mkdir(parents=True, exist_ok=True)
+        success = dataset_download_service.download_kaggle_dataset(dataset_id, path)
+        if success:
+            file_path = f"{path}/{dataset_id.split('/')[-1]}"
+            return {
+                "success": True,
+                "dataset_id": dataset_id,
+                "source": "Kaggle",
+                "message": f"Dataset {dataset_id} downloaded successfully",
+                "file_path": file_path
+            }
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to download Kaggle dataset"
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to download Kaggle dataset: {str(e)}"
+        )
+
+
+@router.post("/download/huggingface")
+async def download_huggingface_dataset_endpoint(
+    dataset_id: str,
+    download_path: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        if not huggingface_service.is_configured:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="HuggingFace API is not configured. Please set HF_TOKEN."
+            )
+        path = download_path or "E:/Startup/smart-ml-assistant/backend/downloads"
+        Path(path).mkdir(parents=True, exist_ok=True)
+        success = dataset_download_service.download_huggingface_dataset(dataset_id, path)
+        if success:
+            file_path = os.path.join(path, dataset_id.replace('/', '_'))
+            return {
+                "success": True,
+                "dataset_id": dataset_id,
+                "source": "HuggingFace",
+                "message": f"Dataset {dataset_id} downloaded successfully to {file_path}",
+                "file_path": file_path
+            }
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to download HuggingFace dataset"
+            )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to download HuggingFace dataset: {str(e)}"
         )

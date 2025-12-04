@@ -22,14 +22,16 @@ class KaggleService:
         """Check if Kaggle API is configured"""
         return self.is_configured
 
-    def search_datasets(self, query: str, page: int = 1, max_size: int = 20) -> List[Dict]:
+    def search_datasets(self, query: str, page: int = 1, max_size: int = 20, sort_by: str = 'hottest') -> List[Dict]:
         """
         Search for datasets on Kaggle
+        EXACT IMPLEMENTATION from dataset.py (lines 75-128, Kaggle section)
 
         Args:
             query: Search query
             page: Page number (default 1)
             max_size: Max results per page (default 20)
+            sort_by: Sort by (default 'hottest', use 'votes' for dataset.py compatibility)
 
         Returns:
             List of dataset info dictionaries
@@ -47,29 +49,36 @@ class KaggleService:
             api = KaggleApi()
             api.authenticate()
 
-            # Search datasets
+            # Search datasets with EXACT parameters from dataset.py
             datasets = api.dataset_list(
                 search=query,
-                page=page,
-                max_size=max_size
+                sort_by=sort_by,
+                page=page
             )
 
-            # Format results
+            # Format results with EXACT structure from dataset.py (lines 89-96)
             results = []
-            for dataset in datasets:
+            for d in datasets[:15]:  # Take top 15 as per dataset.py line 88
                 results.append({
-                    'ref': dataset.ref,
-                    'title': dataset.title,
-                    'size': dataset.size,
-                    'last_updated': str(dataset.lastUpdated),
-                    'download_count': dataset.downloadCount,
-                    'vote_count': dataset.voteCount,
-                    'usability_rating': dataset.usabilityRating,
+                    'id': d.ref,
+                    'title': d.title,
+                    'description': getattr(d, 'description', '') or d.title,
+                    'source': 'Kaggle',
+                    'url': f'https://www.kaggle.com/{d.ref}',  # d.ref already contains 'datasets/' prefix
+                    'downloads': getattr(d, 'downloadCount', 0),
+                    # Additional fields for compatibility
+                    'ref': d.ref,
+                    'size': getattr(d, 'size', 0),
+                    'last_updated': str(getattr(d, 'lastUpdated', '')),
+                    'download_count': getattr(d, 'downloadCount', 0),
+                    'vote_count': getattr(d, 'voteCount', 0),
+                    'usability_rating': getattr(d, 'usabilityRating', 0.0),
                 })
 
             return results
 
         except Exception as e:
+            print(f"✗ Kaggle Search Failed: {e}")
             raise Exception(f"Error searching Kaggle datasets: {str(e)}")
 
     def download_dataset(

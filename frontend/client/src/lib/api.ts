@@ -495,6 +495,70 @@ export const updateDataset = async (datasetId: string, data: { target_column?: s
   return response.json();
 };
 
+export const downloadDataset = async (datasetId: string, source: "Kaggle" | "HuggingFace") => {
+  const response = await fetch(`${BASE_URL}/api/datasets/download-dataset`, {
+    method: "POST",
+    headers: getAuthHeaders(),
+    body: JSON.stringify({
+      dataset_id: datasetId,
+      source: source,
+    }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: "Failed to download dataset" }));
+    throw new Error(error.detail || "Failed to download dataset");
+  }
+  return response.json();
+};
+
+export const downloadDatasetWithProgress = (
+  datasetId: string,
+  source: "Kaggle" | "HuggingFace",
+  onProgress: (progress: number, message: string) => void,
+  onComplete: (result: any) => void,
+  onError: (error: string) => void
+) => {
+  const token = localStorage.getItem("token");
+  const url = `${BASE_URL}/api/datasets/download-progress/${encodeURIComponent(datasetId)}?source=${source}`;
+
+  const eventSource = new EventSource(
+    token ? `${url}&token=${token}` : url
+  );
+
+  eventSource.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
+
+      if (data.status === "error") {
+        eventSource.close();
+        onError(data.message || "Download failed");
+        return;
+      }
+
+      if (data.status === "completed") {
+        eventSource.close();
+        onProgress(100, "Download complete!");
+        onComplete(data.result || { success: true });
+        return;
+      }
+
+      // Report progress
+      onProgress(data.progress || 0, data.message || "Downloading...");
+    } catch (error) {
+      console.error("Error parsing SSE data:", error);
+    }
+  };
+
+  eventSource.onerror = (error) => {
+    console.error("SSE connection error:", error);
+    eventSource.close();
+    onError("Connection error during download");
+  };
+
+  // Return cleanup function
+  return () => eventSource.close();
+};
+
 // Model Search & Selection
 export interface ModelSearchFilters {
   task?: string;

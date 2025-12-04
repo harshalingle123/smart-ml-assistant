@@ -4,209 +4,40 @@ import { ChatInput } from "@/components/ChatInput";
 import { SmartChart } from "@/components/SmartChart";
 import { KaggleDatasetCard } from "@/components/KaggleDatasetCard";
 import { HuggingFaceDatasetCard } from "@/components/HuggingFaceDatasetCard";
+import { DownloadableDatasetCard } from "@/components/DownloadableDatasetCard";
 import { Card, CardHeader, CardFooter } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Loader2, Database, ExternalLink, Sparkles } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Loader2, Database, ExternalLink, Sparkles, Package } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { createChat, sendMessage, sendMessageToAgent, getChatMessages, updateChat } from "@/lib/api";
+import { getChatMessages } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { getApiUrl } from "@/lib/env";
-
-interface KaggleDataset {
-  ref: string;
-  title: string;
-  size: number;
-  last_updated: string;
-  download_count: number;
-  vote_count: number;
-  usability_rating: number;
-}
-
-interface MessageMetadata {
-  kaggle_datasets?: KaggleDataset[];
-  search_query?: string;
-}
-
-interface Message {
-  role: "user" | "assistant";
-  content: string;
-  queryType?: "simple" | "data_based" | "dataset_search";
-  timestamp: Date;
-  charts?: any[];
-  metadata?: MessageMetadata;
-}
+import { useChat } from "@/hooks/useChat";
+import { useTraining } from "@/hooks/useTraining";
+import { Message } from "@/types/chat";
 
 export default function Chat() {
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [chatId, setChatId] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const { messages, setMessages, chatId, setChatId, isLoading, handleSendMessage, addMessage } = useChat();
+  const { isTraining, startTraining } = useTraining();
   const [isInitializing, setIsInitializing] = useState(true);
-  const [useAgent, setUseAgent] = useState(true); // Default to agent mode
+  const [useAgent, setUseAgent] = useState(true);
   const { toast } = useToast();
 
-  // Start training with SSE using fetch (supports auth headers)
-  const startTraining = async (datasetId: string, currentChatId: string) => {
-    try {
-      setIsLoading(true);
-
-      // Get auth token
-      const token = localStorage.getItem("token");
-      if (!token) {
-        toast({
-          title: "Authentication Required",
-          description: "Please log in to train models",
-          variant: "destructive",
-        });
-        setIsLoading(false);
-        return;
-      }
-
-      // Use fetch with streaming instead of EventSource (allows auth headers)
-      const response = await fetch(
-        `${getApiUrl()}/api/automl/train/${datasetId}?chat_id=${currentChatId}`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Accept': 'text/event-stream',
-          },
-        }
-      );
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error("Training request failed:", response.status, errorText);
-        throw new Error(`Training request failed: ${response.status}`);
-      }
-
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-
-      if (!reader) {
-        throw new Error("Response body is not readable");
-      }
-
-      // Read SSE stream
-      while (true) {
-        const { done, value } = await reader.read();
-
-        if (done) {
-          console.log("SSE stream ended");
-          break;
-        }
-
-        // Decode chunk and add to buffer
-        buffer += decoder.decode(value, { stream: true });
-
-        // Process complete SSE messages
-        const lines = buffer.split('\n\n');
-        buffer = lines.pop() || ''; // Keep incomplete message in buffer
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            const dataStr = line.slice(6); // Remove 'data: ' prefix
-
-            try {
-              const data = JSON.parse(dataStr);
-
-              if (data.type === "status" || data.type === "progress") {
-                // Add status message to chat
-                setMessages((prev) => [
-                  ...prev,
-                  {
-                    role: "assistant",
-                    content: data.message,
-                    timestamp: new Date(),
-                  },
-                ]);
-              } else if (data.type === "complete") {
-                // Add final message
-                setMessages((prev) => [
-                  ...prev,
-                  {
-                    role: "assistant",
-                    content: data.message,
-                    timestamp: new Date(),
-                    metadata: {
-                      model_id: data.model_id,
-                      best_model: data.best_model,
-                      metrics: data.metrics,
-                    },
-                  },
-                ]);
-
-                setIsLoading(false);
-
-                // Clear URL params
-                window.history.pushState({}, '', `/?chat=${currentChatId}`);
-
-                toast({
-                  title: "Training Complete!",
-                  description: `Model trained successfully with ${data.best_model}`,
-                });
-
-                return; // Exit the loop
-              } else if (data.type === "error") {
-                // Handle error
-                setMessages((prev) => [
-                  ...prev,
-                  {
-                    role: "assistant",
-                    content: data.message,
-                    timestamp: new Date(),
-                  },
-                ]);
-
-                setIsLoading(false);
-
-                toast({
-                  title: "Training Failed",
-                  description: data.message,
-                  variant: "destructive",
-                });
-
-                return; // Exit the loop
-              }
-            } catch (parseError) {
-              console.error("Failed to parse SSE message:", dataStr, parseError);
-            }
-          }
-        }
-      }
-
-      setIsLoading(false);
-
-    } catch (error) {
-      console.error("Failed to start training:", error);
-      setIsLoading(false);
-
-      toast({
-        title: "Connection Error",
-        description: error instanceof Error ? error.message : "Lost connection to training server",
-        variant: "destructive",
-      });
-    }
-  };
-
-  // Initialize chat on mount
+  // Initialize chat
   useEffect(() => {
     const initializeChat = async () => {
       try {
-        // Check if there's a chat parameter in the URL
         const urlParams = new URLSearchParams(window.location.search);
         const existingChatId = urlParams.get('chat');
         const datasetId = urlParams.get('dataset');
         const shouldTrain = urlParams.get('train') === 'true';
 
         if (existingChatId) {
-          // Load existing chat
           console.log("Loading existing chat:", existingChatId);
           setChatId(existingChatId);
 
-          // Load messages for this chat
           const chatMessages = await getChatMessages(existingChatId);
           const formattedMessages = chatMessages.map((msg: any) => ({
             role: msg.role,
@@ -218,13 +49,10 @@ export default function Chat() {
           }));
           setMessages(formattedMessages);
 
-          // Start training if requested
           if (shouldTrain && datasetId) {
-            startTraining(datasetId, existingChatId);
+            handleStartTraining(datasetId, existingChatId);
           }
         } else {
-          // Don't create chat yet - wait for first user message
-          // Just show welcome message
           setMessages([
             {
               role: "assistant",
@@ -246,146 +74,30 @@ export default function Chat() {
     };
 
     initializeChat();
-  }, [toast]);
+  }, [setChatId, setMessages, toast]);
 
-  // Helper function to generate chat title from query
-  const generateChatTitle = (query: string): string => {
-    const lowerQuery = query.toLowerCase();
-
-    // Extract key topics from the query
-    if (lowerQuery.includes('sentiment') || lowerQuery.includes('emotion')) {
-      return 'Sentiment Analysis';
-    } else if (lowerQuery.includes('house') && lowerQuery.includes('price')) {
-      return 'House Price Prediction';
-    } else if (lowerQuery.includes('stock') || lowerQuery.includes('financial')) {
-      return 'Stock/Financial Analysis';
-    } else if (lowerQuery.includes('image') || lowerQuery.includes('vision')) {
-      return 'Image Analysis';
-    } else if (lowerQuery.includes('nlp') || lowerQuery.includes('text') || lowerQuery.includes('language')) {
-      return 'NLP/Text Analysis';
-    } else if (lowerQuery.includes('classif')) {
-      return 'Classification Task';
-    } else if (lowerQuery.includes('regression') || lowerQuery.includes('predict')) {
-      return 'Regression/Prediction';
-    } else if (lowerQuery.includes('cluster')) {
-      return 'Clustering Analysis';
-    } else if (lowerQuery.includes('recommend')) {
-      return 'Recommendation System';
-    } else if (lowerQuery.includes('fraud') || lowerQuery.includes('anomaly')) {
-      return 'Fraud/Anomaly Detection';
-    } else if (lowerQuery.includes('customer') || lowerQuery.includes('support')) {
-      return 'Customer Support Analysis';
-    } else if (lowerQuery.includes('sales') || lowerQuery.includes('revenue')) {
-      return 'Sales Analysis';
-    } else if (lowerQuery.includes('churn')) {
-      return 'Churn Prediction';
-    } else {
-      // Extract first few meaningful words
-      const words = query.split(' ').filter(w => w.length > 3).slice(0, 3);
-      return words.length > 0 ? words.join(' ') : 'New Chat';
-    }
-  };
-
-  const handleSendMessage = async (content: string, file?: File) => {
-    // Create chat on first message if it doesn't exist
-    let currentChatId = chatId;
-
-    if (!currentChatId) {
-      try {
-        // Generate title based on user's query
-        const chatTitle = generateChatTitle(content);
-        console.log("Creating new chat with title:", chatTitle);
-
-        const chat = await createChat({
-          title: chatTitle,
+  const handleStartTraining = (datasetId: string, currentChatId: string) => {
+    startTraining(datasetId, currentChatId, (data) => {
+      if (data.type === "status" || data.type === "progress" || data.type === "error") {
+        addMessage({
+          role: "assistant",
+          content: data.message,
+          timestamp: new Date()
         });
-        currentChatId = chat._id;
-        setChatId(currentChatId);
-
-        // Update URL to include chat ID
-        window.history.pushState({}, '', `/?chat=${currentChatId}`);
-      } catch (error) {
-        console.error("Failed to create chat:", error);
-        toast({
-          variant: "destructive",
-          title: "Error",
-          description: "Failed to create chat. Please try again.",
-        });
-        return;
-      }
-    }
-
-    // Add user message to UI immediately
-    const userMessage: Message = {
-      role: "user",
-      content: file ? `Uploaded: ${file.name}\n${content}` : content,
-      timestamp: new Date(),
-    };
-
-    setMessages((prev) => [...prev, userMessage]);
-    setIsLoading(true);
-
-    try {
-      // Send message to backend - use agent or regular chat based on toggle
-      const response = useAgent
-        ? await sendMessageToAgent({
-            chat_id: currentChatId,
-            content: userMessage.content,
-          })
-        : await sendMessage({
-            chat_id: currentChatId,
-            content: userMessage.content,
-          });
-
-      // Add assistant response to UI
-      const assistantMessage: Message = {
-        role: "assistant",
-        content: response.content,
-        queryType: response.query_type,
-        timestamp: new Date(response.timestamp),
-        metadata: {
-          ...response.metadata,
-          // Agent returns resources at top level, merge into metadata
-          kaggle_datasets: response.kaggle_datasets || response.metadata?.kaggle_datasets,
-          huggingface_datasets: response.huggingface_datasets || response.metadata?.huggingface_datasets,
-          huggingface_models: response.huggingface_models || response.metadata?.huggingface_models
-        },
-      };
-
-      // Debug: Log datasets if present
-      const datasetsFound = response.kaggle_datasets || response.metadata?.kaggle_datasets;
-      if (datasetsFound && datasetsFound.length > 0) {
-        console.log("Received datasets:", datasetsFound);
-
-        // Update chat title if this was the first message (chat just created)
-        // and datasets were found
-        if (messages.length <= 2) { // Welcome message + user message
-          try {
-            // Enhance the title based on the type of datasets found
-            const enhancedTitle = generateChatTitle(content);
-            await updateChat(currentChatId, { title: enhancedTitle });
-            console.log("Updated chat title to:", enhancedTitle);
-          } catch (error) {
-            console.error("Failed to update chat title:", error);
-            // Don't show error to user, title update is not critical
+      } else if (data.type === "complete") {
+        addMessage({
+          role: "assistant",
+          content: data.message,
+          timestamp: new Date(),
+          metadata: {
+            model_id: data.model_id,
+            best_model: data.best_model,
+            metrics: data.metrics
           }
-        }
+        });
+        window.history.pushState({}, '', `/?chat=${currentChatId}`);
       }
-
-      setMessages((prev) => [...prev, assistantMessage]);
-    } catch (error) {
-      console.error("Failed to send message:", error);
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to send message. Please try again.",
-      });
-
-      // Remove the user message if sending failed
-      setMessages((prev) => prev.filter((msg) => msg !== userMessage));
-    } finally {
-      setIsLoading(false);
-    }
+    });
   };
 
   if (isInitializing) {
@@ -435,9 +147,9 @@ export default function Chat() {
                 <MessageBubble
                   role={message.role}
                   content={message.content}
-                  queryType={(message as any).queryType}
+                  queryType={message.queryType}
                   timestamp={message.timestamp}
-                  metadata={(message as any).metadata}
+                  metadata={message.metadata}
                 />
               )}
 
@@ -449,13 +161,12 @@ export default function Chat() {
                     <span>Suggested Datasets from Kaggle</span>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                    {message.metadata.kaggle_datasets.map((dataset, idx) => (
+                    {message.metadata.kaggle_datasets.map((dataset: any, idx: number) => (
                       <KaggleDatasetCard
                         key={idx}
                         dataset={dataset}
                         chatId={chatId || ""}
                         onDatasetAdded={() => {
-                          // Optionally refresh datasets or show a success message
                           toast({
                             title: "Success!",
                             description: "Dataset added to your collection. Check the Datasets tab!",
@@ -522,15 +233,41 @@ export default function Chat() {
                 </div>
               )}
 
-              {(message as any).charts && (
+              {/* Display Downloadable Datasets Section */}
+              {message.metadata?.downloadable_datasets && message.metadata.downloadable_datasets.length > 0 && (
+                <div className="mt-4 space-y-3">
+                  <div className="flex items-center gap-2 px-3 py-2 bg-primary/5 rounded-lg border border-primary/20">
+                    <Package className="h-5 w-5 text-primary" />
+                    <span className="font-semibold text-sm">Download Options</span>
+                    <Badge variant="secondary" className="ml-auto">
+                      {message.metadata.downloadable_datasets.length} datasets
+                    </Badge>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {message.metadata.downloadable_datasets.map((dataset: any, idx: number) => (
+                      <DownloadableDatasetCard
+                        key={`${dataset.source}-${dataset.id}-${idx}`}
+                        id={dataset.id}
+                        title={dataset.title}
+                        source={dataset.source}
+                        url={dataset.url}
+                        downloads={dataset.downloads}
+                        relevance_score={dataset.relevance_score}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {message.charts && (
                 <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {(message as any).charts.map((chart: any, chartIndex: number) => (
+                  {message.charts.map((chart: any, chartIndex: number) => (
                     <SmartChart key={chartIndex} chart={chart} />
                   ))}
                 </div>
               )}
 
-              {(message as any).queryType === "data_based" && index === messages.length - 1 && (
+              {message.queryType === "data_based" && index === messages.length - 1 && (
                 <Card className="mt-4 p-4 bg-accent/50">
                   <div className="flex items-center justify-between">
                     <div>
@@ -549,16 +286,17 @@ export default function Chat() {
               )}
             </div>
           ))}
-          {isLoading && (
+          {(isLoading || isTraining) && (
             <div className="flex items-center gap-2 text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
-              <span className="text-sm">AutoML is thinking...</span>
+              <span className="text-sm">{isTraining ? "Training model..." : "AutoML is thinking..."}</span>
             </div>
           )}
         </div>
       </ScrollArea>
 
-      <ChatInput onSend={handleSendMessage} disabled={isLoading} />
+      <ChatInput onSend={(content, file) => handleSendMessage(content, useAgent, file)} disabled={isLoading || isTraining} />
     </div>
   );
 }
+

@@ -13,13 +13,20 @@ from typing import List, Dict, Optional, Any
 import google.generativeai as genai
 from app.core.config import settings
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class GeminiAgentService:
     def __init__(self):
         self.model = None
         if settings.GOOGLE_GEMINI_API_KEY:
-            genai.configure(api_key=settings.GOOGLE_GEMINI_API_KEY)
+            try:
+                genai.configure(api_key=settings.GOOGLE_GEMINI_API_KEY)
+            except Exception as e:
+                print(f"Failed to configure Gemini API: {e}")
+                return
 
             # Define the THREE tools for the agent using Gemini's format
             self.tools = [
@@ -151,13 +158,86 @@ For each of the 5 datasets, you must:
     async def find_dataset_fn(self, topic: str, task_type: str) -> Dict[str, Any]:
         """
         Tool Implementation: find_dataset
-        Search Kaggle and HuggingFace for datasets
+        Search Kaggle and HuggingFace for datasets using enhanced search with Gemini embeddings
         """
+        from app.services.enhanced_dataset_service import enhanced_dataset_service
+        
+        try:
+            # Use enhanced search with Gemini embeddings
+            ranked_datasets = await enhanced_dataset_service.search_and_rank(
+                user_query=topic,
+                limit=8  # Get top 8 results
+            )
+            
+            # Separate by source
+            kaggle_datasets = []
+            huggingface_datasets = []
+            
+            for ds in ranked_datasets:
+                dataset_info = {
+                    "name": ds.get("title"),
+                    "url": ds.get("url"),
+                    "download_url": ds.get("download_url"),  # NEW: Include download URL
+                    "relevance_score": ds.get("relevance_score", 0),  # NEW: Include relevance score
+                    "downloads": ds.get("downloads", 0)
+                }
+                
+                if ds.get("source") == "Kaggle":
+                    dataset_info["ref"] = ds.get("id")
+                    dataset_info["title"] = ds.get("title")
+                    kaggle_datasets.append(dataset_info)
+                elif ds.get("source") == "HuggingFace":
+                    huggingface_datasets.append(dataset_info)
+            
+            # If enhanced search didn't return enough results, add fallbacks
+            if len(kaggle_datasets) < 3:
+                from app.services.kaggle_service import kaggle_service
+                
+                if kaggle_service.is_configured:
+                    try:
+                        kaggle_results = kaggle_service.search_datasets(
+                            query=topic,
+                            page=1,
+                            max_size=5
+                        )
+                        
+                        for ds in kaggle_results:
+                            dataset_ref = ds.get('ref', '').strip()
+                            if not dataset_ref or len(kaggle_datasets) >= 5:
+                                break
+                            
+                            usability = ds.get("usability_rating", 0)
+                            if usability < 0.5:
+                                continue
+                            
+                            kaggle_datasets.append({
+                                "name": ds.get("title", "Unknown"),
+                                "url": f"https://www.kaggle.com/{dataset_ref}",
+                                "download_url": f"kaggle://{dataset_ref}",
+                                "ref": dataset_ref,
+                                "title": ds.get("title", "Unknown")
+                            })
+                    except Exception as e:
+                        logger.error(f"Fallback Kaggle search error: {e}")
+            
+            return {
+                "kaggle_datasets": kaggle_datasets[:5],  # Top 5
+                "huggingface_datasets": huggingface_datasets[:3],  # Top 3
+                "task_type": task_type,
+                "topic": topic
+            }
+            
+        except Exception as e:
+            logger.error(f"Enhanced dataset search failed: {e}, using fallback")
+            # Fallback to original logic if enhanced search fails
+            return await self._fallback_find_dataset(topic, task_type)
+    
+    async def _fallback_find_dataset(self, topic: str, task_type: str) -> Dict[str, Any]:
+        """Fallback dataset search logic"""
         from app.services.kaggle_service import kaggle_service
 
         kaggle_datasets = []
         huggingface_datasets = []
-        kaggle_datasets_count = 0
 
         # Search Kaggle
         try:
@@ -165,106 +245,56 @@ For each of the 5 datasets, you must:
                 kaggle_results = kaggle_service.search_datasets(
                     query=topic,
                     page=1,
-                    max_size=10  # Get more results to filter better
+                    max_size=10
                 )
 
                 if kaggle_results and isinstance(kaggle_results, list):
                     for ds in kaggle_results:
                         try:
-                            # Validate that ref exists and is not empty
                             dataset_ref = ds.get('ref', '').strip()
                             if not dataset_ref:
-                                print(f"Skipping dataset with empty ref: {ds.get('title', 'Unknown')}")
                                 continue
 
-                            # Only add datasets with good usability rating
                             usability = ds.get("usability_rating", 0)
-                            if usability < 0.5:  # Skip low quality datasets
+                            if usability < 0.5:
                                 continue
 
                             kaggle_datasets.append({
                                 "name": ds.get("title", "Unknown"),
-                                "url": f"https://www.kaggle.com/datasets/{dataset_ref}"
+                                "url": f"https://www.kaggle.com/{dataset_ref}",
+                                "download_url": f"kaggle://{dataset_ref}",
+                                "ref": dataset_ref,
+                                "title": ds.get("title", "Unknown")
                             })
-                            kaggle_datasets_count += 1
 
-                            # Limit to top 5 Kaggle datasets
-                            if kaggle_datasets_count >= 5:
+                            if len(kaggle_datasets) >= 5:
                                 break
                         except Exception as ds_error:
-                            print(f"Error processing dataset: {str(ds_error)}")
+                            logger.error(f"Error processing dataset: {ds_error}")
                             continue
-            else:
-                print("Kaggle API not configured - skipping Kaggle search")
         except Exception as e:
-            print(f"Kaggle search error: {str(e)}")
+            logger.error(f"Kaggle search error: {e}")
 
-        # Add fallback Kaggle datasets if we have less than 3 results
-        if len(kaggle_datasets) < 3:
-            print(f"Found {len(kaggle_datasets)} Kaggle datasets for {task_type}, adding popular fallbacks")
-            default_kaggle_datasets = {
-                "regression": [
-                    {"name": "House Prices Dataset", "url": "https://www.kaggle.com/datasets/yasserh/housing-prices-dataset"},
-                    {"name": "Used Cars Price Prediction", "url": "https://www.kaggle.com/datasets/avikasliwal/used-cars-price-prediction"}
-                ],
-                "classification": [
-                    {"name": "Titanic Dataset", "url": "https://www.kaggle.com/datasets/yasserh/titanic-dataset"},
-                    {"name": "Heart Disease Prediction", "url": "https://www.kaggle.com/datasets/johnsmith88/heart-disease-dataset"}
-                ],
-                "text-classification": [
-                    {"name": "IMDB Movie Reviews", "url": "https://www.kaggle.com/datasets/lakshmi25npathi/imdb-dataset-of-50k-movie-reviews"},
-                    {"name": "Spam Classification", "url": "https://www.kaggle.com/datasets/uciml/sms-spam-collection-dataset"}
-                ],
-                "nlp": [
-                    {"name": "Twitter Sentiment", "url": "https://www.kaggle.com/datasets/kazanova/sentiment140"},
-                    {"name": "News Category Dataset", "url": "https://www.kaggle.com/datasets/rmisra/news-category-dataset"}
-                ]
-            }
-
-            slots_available = 5 - len(kaggle_datasets)
-            fallback_list = default_kaggle_datasets.get(task_type, default_kaggle_datasets.get("classification", []))
-
-            for ds in fallback_list[:slots_available]:
-                kaggle_datasets.append({
-                    "name": ds["name"],
-                    "url": ds["url"]
-                })
-
-        # Add HuggingFace datasets based on task type
+        # HuggingFace fallback datasets
         huggingface_dataset_mapping = {
             "regression": [
-                {"name": "California Housing Prices", "url": "https://huggingface.co/datasets/scikit-learn/california-housing"},
-                {"name": "Diabetes Dataset", "url": "https://huggingface.co/datasets/scikit-learn/diabetes"}
+                {"name": "California Housing Prices", "url": "https://huggingface.co/datasets/scikit-learn/california-housing", "download_url": "hf://datasets/scikit-learn/california-housing"},
+                {"name": "Diabetes Dataset", "url": "https://huggingface.co/datasets/scikit-learn/diabetes", "download_url": "hf://datasets/scikit-learn/diabetes"}
             ],
             "classification": [
-                {"name": "MNIST", "url": "https://huggingface.co/datasets/mnist"},
-                {"name": "CIFAR-10", "url": "https://huggingface.co/datasets/cifar10"},
-                {"name": "Fashion MNIST", "url": "https://huggingface.co/datasets/fashion_mnist"}
+                {"name": "MNIST", "url": "https://huggingface.co/datasets/mnist", "download_url": "hf://datasets/mnist"},
+                {"name": "CIFAR-10", "url": "https://huggingface.co/datasets/cifar10", "download_url": "hf://datasets/cifar10"}
             ],
             "nlp": [
-                {"name": "IMDB Reviews", "url": "https://huggingface.co/datasets/imdb"},
-                {"name": "AG News", "url": "https://huggingface.co/datasets/ag_news"},
-                {"name": "SST-2", "url": "https://huggingface.co/datasets/sst2"}
-            ],
-            "text-classification": [
-                {"name": "IMDB Reviews", "url": "https://huggingface.co/datasets/imdb"},
-                {"name": "AG News", "url": "https://huggingface.co/datasets/ag_news"},
-                {"name": "Yelp Reviews", "url": "https://huggingface.co/datasets/yelp_review_full"}
-            ],
-            "clustering": [
-                {"name": "Iris Dataset", "url": "https://huggingface.co/datasets/scikit-learn/iris"},
-                {"name": "Wine Dataset", "url": "https://huggingface.co/datasets/scikit-learn/wine"}
-            ],
-            "time-series": [
-                {"name": "ETTh1", "url": "https://huggingface.co/datasets/Salesforce/ettm1"},
-                {"name": "Stock Prices", "url": "https://huggingface.co/datasets/zeroshot/twitter-financial-news-sentiment"}
+                {"name": "IMDB Reviews", "url": "https://huggingface.co/datasets/imdb", "download_url": "hf://datasets/imdb"},
+                {"name": "AG News", "url": "https://huggingface.co/datasets/ag_news", "download_url": "hf://datasets/ag_news"}
             ]
         }
 
         huggingface_datasets = huggingface_dataset_mapping.get(
             task_type,
             huggingface_dataset_mapping.get("classification", [])
-        )[:3]  # Limit to 3 HuggingFace datasets
+        )[:3]
 
         return {
             "kaggle_datasets": kaggle_datasets,
@@ -471,11 +501,12 @@ For each of the 5 datasets, you must:
             import traceback
             traceback.print_exc()
 
-            # Check if it's a quota/rate limit error
+            # Check if it's a quota/rate limit/API key error
             error_str = str(e).lower()
             is_quota_error = any(keyword in error_str for keyword in [
                 'quota', 'rate limit', 'resource exhausted', '429',
-                'exceeded', 'billing', 'free tier'
+                'exceeded', 'billing', 'free tier', 'api key', 'leaked',
+                '403', 'forbidden', 'invalid api key', 'unauthorized'
             ])
 
             # Return user-friendly message based on error type

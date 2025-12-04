@@ -8,6 +8,8 @@ from app.services.gemini_service import gemini_service
 from app.services.claude_service import claude_service
 from app.services.kaggle_service import kaggle_service
 from app.services.simple_gemini_indexer import simple_gemini_indexer
+from app.services.dataset_download_service import dataset_download_service
+from app.services.huggingface_service import huggingface_service
 from bson import ObjectId
 from datetime import datetime
 import json
@@ -124,20 +126,133 @@ async def send_message_with_ai_response(
         if not message_data.query_type:
             query_analysis = await ai_service.analyze_dataset_query(message_data.content)
 
-        # Detect if user is asking for ML model recommendations
-        ml_request_keywords = ["classify", "classification", "train", "model", "predict", "need to", "want to", "build", "create model", "ml for", "machine learning"]
-        is_ml_request = any(keyword in message_data.content.lower() for keyword in ml_request_keywords)
+        # Detect if user is asking for ML tasks (which typically need datasets)
+        ml_task_keywords = ["classify", "classification", "train", "model", "predict", "build", "create model", "ml for", "machine learning", "sentiment analysis", "text classification"]
+        is_ml_task = any(keyword in message_data.content.lower() for keyword in ml_task_keywords)
 
         # Check if user provides requirements (dataset size, budget, latency)
         has_requirements = any(word in message_data.content.lower() for word in ["budget", "latency", "samples", "rows", "ms", "cost", "tickets", "data"])
+
+        # OVERRIDE: If we detect ML task keywords, treat it as a dataset search
+        # This ensures queries like "Classify customer support tickets" are treated as dataset searches
+        if is_ml_task and query_analysis:
+            print(f"🔍 ML task detected, forcing dataset search for: {message_data.content}")
+            query_analysis["needs_kaggle_search"] = True
+            # Generate better search query if not already set
+            if not query_analysis.get("search_query"):
+                user_lower = message_data.content.lower()
+                if "support" in user_lower or "ticket" in user_lower:
+                    query_analysis["search_query"] = "customer support tickets classification"
+                elif "sentiment" in user_lower:
+                    query_analysis["search_query"] = "sentiment analysis"
+                else:
+                    query_analysis["search_query"] = message_data.content
+            query_analysis["query_type"] = "dataset_search"
 
         # Initialize variables
         kaggle_datasets = None
         model_recommendations = None
         dataset_metadata = None
 
-        # CASE 1: ML Model Recommendation Request (with requirements)
-        if is_ml_request and has_requirements and gemini_service.is_available():
+        # CASE 1: Enhanced Dataset Search Request (Using chat.txt logic)
+        # Check this FIRST to prioritize dataset searches over ML recommendations
+        if query_analysis and query_analysis.get("needs_kaggle_search"):
+            search_query = query_analysis.get("search_query", message_data.content)
+
+            try:
+                # Use enhanced search with query optimization and semantic ranking
+                # Note: optimization and ranking may fail if Gemini API is unavailable,
+                # but we still return HuggingFace/Kaggle results
+                search_result = await dataset_download_service.search_all_sources(
+                    user_query=search_query,
+                    optimize_query=True  # Will fallback to original query if Gemini fails
+                )
+
+                # Get top 5 datasets
+                top_datasets = search_result.get("datasets", [])[:5]
+
+                if top_datasets:
+                    # Create a response that includes dataset suggestions with relevance scores
+                    dataset_list = "\n\n".join([
+                        f"{i+1}. **{ds.get('title', ds.get('name', 'Unknown'))}** ({ds.get('source', 'Unknown')})\n" +
+                        (f"   - Relevance: {ds.get('relevance_score', 0):.2%}\n" if 'relevance_score' in ds else "") +
+                        f"   - Downloads: {ds.get('downloads', ds.get('download_count', 0)):,}\n" +
+                        (f"   - Size: {ds['size']/1024/1024:.1f} MB\n" if ds.get('size') else "") +
+                        (f"   - Usability: {ds['usability_rating']:.2f}/1.0\n" if ds.get('usability_rating') else "") +
+                        f"   - URL: {ds.get('url', '')}"
+                        for i, ds in enumerate(top_datasets)
+                    ])
+
+                    fixed_query = search_result.get("fixed_query", search_query)
+                    query_note = f" (interpreted as: '{fixed_query}')" if fixed_query != search_query else ""
+
+                    # Check if datasets were ranked
+                    ranking_note = ""
+                    if not any('relevance_score' in ds for ds in top_datasets):
+                        ranking_note = "\n\n_Note: Datasets are sorted by download count (semantic ranking unavailable)._"
+
+                    ai_response = f"""I found {search_result.get('total_found', len(top_datasets))} datasets for your query "{search_query}"{query_note}:
+
+**Top 5 Recommendations:**
+{dataset_list}
+
+**Source Breakdown:**
+- Kaggle: {search_result.get('kaggle_count', 0)} datasets
+- HuggingFace: {search_result.get('huggingface_count', 0)} datasets{ranking_note}
+
+Would you like to download any of these datasets?"""
+
+                    # Prepare downloadable_datasets with proper structure
+                    downloadable_datasets = []
+                    for ds in top_datasets:
+                        downloadable_datasets.append({
+                            "id": ds.get('ref') if ds.get('source') == 'Kaggle' else ds.get('id'),
+                            "title": ds.get('title', ds.get('name', 'Unknown')),
+                            "source": ds.get('source', 'Unknown'),
+                            "url": ds.get('url', ''),
+                            "downloads": ds.get('downloads', ds.get('download_count', 0)),
+                            "size": ds.get('size', 0),
+                            "size_str": ds.get('size_str', 'Unknown')
+                        })
+
+                    # Store dataset options in metadata
+                    dataset_metadata = {
+                        "kaggle_datasets": [ds for ds in top_datasets if ds.get('source') == 'Kaggle'],
+                        "huggingface_datasets": [ds for ds in top_datasets if ds.get('source') == 'HuggingFace'],
+                        "downloadable_datasets": downloadable_datasets,
+                        "search_query": search_query,
+                        "fixed_query": fixed_query,
+                        "query_type": "dataset_search"
+                    }
+                else:
+                    # No datasets found, use AI to respond
+                    print(f"No datasets found for query: {search_query}")
+                    ai_response = f"""I couldn't find any datasets matching "{search_query}". This could be because:
+
+1. The search terms are too specific
+2. No datasets exist for this topic yet
+3. The dataset services are temporarily unavailable
+
+Would you like to try:
+- A more general search query?
+- Browsing popular datasets in a related category?
+- Asking me something else about ML or data analysis?"""
+                    dataset_metadata = None
+
+            except Exception as e:
+                import traceback
+                print(f"=== DATASET SEARCH ERROR ===")
+                print(f"Query: {search_query}")
+                print(f"Error: {str(e)}")
+                print(traceback.format_exc())
+                print(f"===========================")
+                # Fallback to regular response
+                ai_response = await ai_service.generate_response(claude_messages)
+                dataset_metadata = None
+
+        # CASE 2: ML Model Recommendation Request (with requirements, but NOT a dataset search)
+        # This case is now rarely reached because ML tasks are routed to CASE 1 (dataset search)
+        elif is_ml_task and has_requirements and gemini_service.is_available() and not (query_analysis and query_analysis.get("needs_kaggle_search")):
             try:
                 # Extract structured intent from natural language
                 intent = await gemini_service.extract_intent_from_natural_language(message_data.content)
@@ -219,48 +334,6 @@ Would you like me to help you get started with any of these steps?"""
                 # Fall back to regular response
                 ai_response = await ai_service.generate_response(claude_messages)
 
-        # CASE 2: Dataset Search Request
-        elif query_analysis and query_analysis.get("needs_kaggle_search"):
-            # Search Kaggle for datasets
-            search_query = query_analysis.get("search_query", message_data.content)
-            try:
-                if kaggle_service.is_configured:
-                    kaggle_datasets = kaggle_service.search_datasets(
-                        query=search_query,
-                        page=1,
-                        max_size=5  # Show top 5 datasets
-                    )
-            except Exception as e:
-                print(f"Kaggle search error: {str(e)}")
-                # Continue without Kaggle results
-
-            # Filter out datasets with empty or invalid refs
-            if kaggle_datasets and len(kaggle_datasets) > 0:
-                valid_datasets = [ds for ds in kaggle_datasets if ds.get('ref', '').strip()]
-            else:
-                valid_datasets = []
-
-            if valid_datasets:
-                # Create a response that includes dataset suggestions
-                dataset_list = "\n\n".join([
-                    f"{i+1}. **{ds['title']}** (`{ds['ref']}`)\n   - Size: {ds['size']/1024/1024:.1f} MB\n   - Downloads: {ds['download_count']:,}\n   - Usability: {ds['usability_rating']:.2f}/1.0"
-                    for i, ds in enumerate(valid_datasets)
-                ])
-
-                ai_response = f"""I found some relevant datasets on Kaggle for your query about "{search_query}":
-
-{dataset_list}
-
-Would you like to use any of these datasets? I can help you download and add them to your datasets tab. Just let me know which one you'd like to use by mentioning the number or name!"""
-
-                # Store dataset options in metadata for later selection
-                dataset_metadata = {
-                    "kaggle_datasets": valid_datasets,
-                    "search_query": search_query,
-                    "query_type": "dataset_search"
-                }
-            else:
-                ai_response = await ai_service.generate_response(claude_messages)
         else:
             # CASE 3: Regular conversation
             ai_response = await ai_service.generate_response(claude_messages)
@@ -300,15 +373,28 @@ Would you like to use any of these datasets? I can help you download and add the
         response_dict = assistant_message.dict(by_alias=True)
         if dataset_metadata:
             response_dict["metadata"] = dataset_metadata
+            # Add downloadable_datasets to response if available
+            if "downloadable_datasets" in dataset_metadata:
+                response_dict["downloadable_datasets"] = dataset_metadata["downloadable_datasets"]
 
         return MessageResponse(**response_dict)
 
     except Exception as e:
-        # Check if it's a quota/rate limit error
+        # Log detailed error information for debugging
+        import traceback
+        print(f"=== ERROR IN /api/messages/chat ===")
+        print(f"Error type: {type(e).__name__}")
+        print(f"Error message: {str(e)}")
+        print(f"Full traceback:")
+        print(traceback.format_exc())
+        print(f"===================================")
+
+        # Check if it's a quota/rate limit/API key error
         error_str = str(e).lower()
         is_quota_error = any(keyword in error_str for keyword in [
             'quota', 'rate limit', 'resource exhausted', '429',
-            'exceeded', 'billing', 'free tier'
+            'exceeded', 'billing', 'free tier', 'api key', 'leaked',
+            '403', 'forbidden', 'invalid api key', 'unauthorized'
         ])
 
         # Return user-friendly message based on error type
@@ -435,33 +521,202 @@ async def chat_with_gemini_agent(
         })
 
     try:
-        # Process message with Simple Gemini Indexer
-        indexer_result = await simple_gemini_indexer.process_query(
-            user_query=message_data.content,
-            chat_history=chat_history
-        )
+        # CRITICAL: Detect if user is asking for datasets OR ML tasks (which need datasets)
+        # If yes, use DIRECT API search (like chat.py script)
+        # If no, use Gemini indexer for model suggestions, etc.
+        user_lower = message_data.content.lower()
 
-        # Extract response and metadata
-        ai_response = indexer_result.get("response", "I couldn't process your request.")
-        json_data = indexer_result.get("json_data", {})
+        # Explicit dataset keywords
+        dataset_keywords = [
+            "dataset", "data set", "find data", "search data", "get data",
+            "need data", "looking for data", "download data", "kaggle",
+            "huggingface", "data for", "training data"
+        ]
 
-        # Extract all three resource types from the JSON response
+        # ML task keywords that typically need datasets
+        ml_task_keywords = [
+            "classify", "classification", "train", "model", "predict", "prediction",
+            "build model", "create model", "fine-tune", "finetune",
+            "sentiment analysis", "text classification", "image classification",
+            "object detection", "regression", "clustering"
+        ]
+
+        # Treat both explicit dataset requests AND ML task queries as dataset searches
+        has_dataset_keyword = any(keyword in user_lower for keyword in dataset_keywords)
+        has_ml_task = any(keyword in user_lower for keyword in ml_task_keywords)
+        is_dataset_query = has_dataset_keyword or has_ml_task
+
+        print(f"🔍 Agent endpoint - has_dataset_keyword: {has_dataset_keyword}, has_ml_task: {has_ml_task}, is_dataset_query: {is_dataset_query}")
+
+        # Initialize variables
         kaggle_datasets = None
         huggingface_datasets = None
         huggingface_models = None
+        json_data = {}
 
-        # Extract from json_data
-        if json_data and "data_sources" in json_data:
+        if is_dataset_query:
+            # USE EXACT LOGIC FROM chat.py: extract_spec() → search_apis() → rank_candidates()
+            print(f"🔍 Dataset query detected, using direct API search (chat.py logic)")
+
+            # Optimize search query for ML tasks
+            search_query = message_data.content
+            if has_ml_task and not has_dataset_keyword:
+                # Generate better search query for ML tasks
+                if "support" in user_lower or "ticket" in user_lower:
+                    search_query = "customer support tickets classification dataset"
+                elif "sentiment" in user_lower:
+                    search_query = "sentiment analysis dataset"
+                elif "classif" in user_lower:
+                    search_query = "text classification dataset"
+                else:
+                    search_query = f"{message_data.content} dataset"
+                print(f"📝 Optimized query: '{message_data.content}' → '{search_query}'")
+
+            # Call the exact implementation from dataset_download_service
+            search_result = await dataset_download_service.search_all_sources(
+                user_query=search_query,
+                optimize_query=True  # Uses extract_spec() internally
+            )
+
+            # Get datasets from actual API responses
+            top_datasets = search_result.get("datasets", [])[:5]
+
+            if top_datasets:
+                # Create response
+                fixed_query = search_result.get("fixed_query", message_data.content)
+                dataset_list = "\n\n".join([
+                    f"{i+1}. **{ds.get('title', 'Unknown')}** ({ds.get('source', 'Unknown')})\n" +
+                    (f"   - Relevance: {ds.get('relevance_score', 0):.2%}\n" if 'relevance_score' in ds else "") +
+                    f"   - Downloads: {ds.get('downloads', 0):,}\n" +
+                    f"   - URL: {ds.get('url', '')}"
+                    for i, ds in enumerate(top_datasets)
+                ])
+
+                # Count by source
+                kaggle_count = sum(1 for ds in top_datasets if ds.get('source') == 'Kaggle')
+                hf_count = sum(1 for ds in top_datasets if ds.get('source') == 'HuggingFace')
+
+                # Check if datasets were ranked
+                ranking_note = ""
+                if not any('relevance_score' in ds for ds in top_datasets):
+                    ranking_note = "\n\n_Note: Datasets are sorted by download count (semantic ranking unavailable)._"
+
+                ai_response = f"""I found {len(top_datasets)} datasets for your query "{search_query}":
+
+**Top 5 Recommendations:**
+{dataset_list}
+
+**Source Breakdown:**
+- Kaggle: {kaggle_count} datasets
+- HuggingFace: {hf_count} datasets{ranking_note}
+
+Would you like to download any of these datasets?"""
+
+                # Format datasets for frontend
+                kaggle_list = []
+                huggingface_list = []
+
+                for ds in top_datasets:
+                    if ds.get('source') == 'Kaggle':
+                        kaggle_list.append({
+                            "ref": ds.get("ref") or ds.get("id"),
+                            "title": ds.get("title"),
+                            "size": ds.get("size", 0),
+                            "download_count": ds.get("downloads", 0),
+                            "vote_count": ds.get("votes", 0),
+                            "usability_rating": ds.get("usability_rating", 0.8),
+                            "url": ds.get("url")
+                        })
+                    elif ds.get('source') == 'HuggingFace':
+                        huggingface_list.append({
+                            "id": ds.get("id"),
+                            "name": ds.get("title"),
+                            "url": ds.get("url"),
+                            "downloads": ds.get("downloads", 0),
+                            "likes": ds.get("likes", 0)
+                        })
+
+                # Set to None if empty, otherwise assign
+                kaggle_datasets = kaggle_list if kaggle_list else None
+                huggingface_datasets = huggingface_list if huggingface_list else None
+
+                # Use API search results directly
+                json_data = {
+                    "query": message_data.content,
+                    "data_sources": {
+                        "kaggle_datasets": [],  # Will be populated from formatted results
+                        "huggingface_datasets": [],
+                        "huggingface_models": []
+                    }
+                }
+            else:
+                ai_response = f"I couldn't find datasets matching '{message_data.content}' using API search. Try different keywords?"
+                kaggle_datasets = None
+                huggingface_datasets = None
+                json_data = {
+                    "query": message_data.content,
+                    "data_sources": {
+                        "kaggle_datasets": [],
+                        "huggingface_datasets": [],
+                        "huggingface_models": []
+                    }
+                }
+        else:
+            # Use Gemini indexer for non-dataset queries (model suggestions, etc.)
+            print(f"💬 General ML query, using Gemini indexer")
+            indexer_result = await simple_gemini_indexer.process_query(
+                user_query=message_data.content,
+                chat_history=chat_history
+            )
+
+            # Extract response and metadata
+            ai_response = indexer_result.get("response", "I couldn't process your request.")
+            json_data = indexer_result.get("json_data", {})
+
+        # For dataset queries, we already have kaggle_datasets and huggingface_datasets from API
+        # For non-dataset queries, extract from json_data and validate with URL extraction
+
+        # Only extract and validate from json_data if NOT a dataset query (to avoid overwriting API results)
+        if not is_dataset_query and json_data and "data_sources" in json_data:
             data_sources = json_data["data_sources"]
 
-            # Extract Kaggle datasets
+            # Extract Kaggle datasets and validate with API
             if data_sources.get("kaggle_datasets"):
                 converted_kaggle = []
                 for ds in data_sources["kaggle_datasets"]:
                     url = ds.get("url", "")
-                    if "kaggle.com/datasets/" in url:
-                        ref = url.split("kaggle.com/datasets/")[-1].strip("/")
-                        if ref:
+                    ref = ds.get("ref")  # Use extracted ref if available
+
+                    # Extract ref from URL if not provided
+                    if not ref:
+                        if "kaggle.com/datasets/" in url:
+                            ref = url.split("kaggle.com/datasets/")[-1].strip("/")
+                        elif "kaggle.com/" in url:
+                            ref = url.split("kaggle.com/")[-1].strip("/")
+
+                    if ref:
+                        # Validate dataset exists using Kaggle API
+                        try:
+                            if kaggle_service.is_configured:
+                                # Get full dataset info from Kaggle API
+                                api_datasets = kaggle_service.search_datasets(query=ref, page_size=1)
+                                if api_datasets and len(api_datasets) > 0:
+                                    # Use API response for complete info
+                                    api_ds = api_datasets[0]
+                                    if api_ds.get('ref') == ref:  # Verify it's the exact match
+                                        converted_kaggle.append({
+                                            "ref": api_ds.get("ref"),
+                                            "title": api_ds.get("title", ds.get("name", "Unknown Dataset")),
+                                            "size": api_ds.get("totalBytes", 0),
+                                            "last_updated": api_ds.get("lastUpdated", ""),
+                                            "download_count": api_ds.get("downloadCount", 0),
+                                            "vote_count": api_ds.get("voteCount", 0),
+                                            "usability_rating": api_ds.get("usabilityRating", 0.8),
+                                            "url": api_ds.get("url", f"https://www.kaggle.com/datasets/{ref}")
+                                        })
+                                        print(f"✓ Validated Kaggle dataset: {ref}")
+                                        continue
+                            # Fallback: Use extracted data if API validation fails
                             converted_kaggle.append({
                                 "ref": ref,
                                 "title": ds.get("name", "Unknown Dataset"),
@@ -469,14 +724,81 @@ async def chat_with_gemini_agent(
                                 "last_updated": "",
                                 "download_count": 0,
                                 "vote_count": 0,
-                                "usability_rating": 0.8
+                                "usability_rating": 0.8,
+                                "url": f"https://www.kaggle.com/datasets/{ref}"
+                            })
+                            print(f"⚠ Using unvalidated data for: {ref}")
+                        except Exception as e:
+                            print(f"✗ Error validating {ref}: {e}")
+                            # Still add the dataset with basic info
+                            converted_kaggle.append({
+                                "ref": ref,
+                                "title": ds.get("name", "Unknown Dataset"),
+                                "size": 0,
+                                "last_updated": "",
+                                "download_count": 0,
+                                "vote_count": 0,
+                                "usability_rating": 0.8,
+                                "url": f"https://www.kaggle.com/datasets/{ref}"
                             })
                 if converted_kaggle:
                     kaggle_datasets = converted_kaggle
 
-            # Extract HuggingFace datasets (keep as-is)
+            # Extract HuggingFace datasets and validate with API
             if data_sources.get("huggingface_datasets"):
-                huggingface_datasets = data_sources["huggingface_datasets"]
+                validated_hf = []
+                for ds in data_sources["huggingface_datasets"]:
+                    url = ds.get("url", "")
+                    dataset_id = ds.get("id")
+
+                    # Extract ID from URL if not provided
+                    if not dataset_id and "huggingface.co/datasets/" in url:
+                        dataset_id = url.split("huggingface.co/datasets/")[-1].strip("/")
+
+                    if dataset_id:
+                        try:
+                            # Validate with HuggingFace API
+                            if huggingface_service.is_configured:
+                                api_datasets = await huggingface_service.search_datasets(
+                                    query=dataset_id,
+                                    limit=1
+                                )
+                                if api_datasets and len(api_datasets) > 0:
+                                    api_ds = api_datasets[0]
+                                    if api_ds.get('id') == dataset_id:  # Exact match
+                                        validated_hf.append({
+                                            "id": api_ds.get("id"),
+                                            "name": api_ds.get("name", ds.get("name", "Unknown")),
+                                            "url": api_ds.get("url", f"https://huggingface.co/datasets/{dataset_id}"),
+                                            "downloads": api_ds.get("downloads", 0),
+                                            "likes": api_ds.get("likes", 0),
+                                            "size": api_ds.get("size", 0),
+                                            "size_str": api_ds.get("size_str", "Unknown")
+                                        })
+                                        print(f"✓ Validated HuggingFace dataset: {dataset_id}")
+                                        continue
+                            # Fallback
+                            validated_hf.append({
+                                "id": dataset_id,
+                                "name": ds.get("name", "Unknown"),
+                                "url": f"https://huggingface.co/datasets/{dataset_id}",
+                                "size": 0,
+                                "size_str": "Unknown",
+                                "downloads": 0,
+                                "likes": 0
+                            })
+                            print(f"⚠ Using unvalidated data for: {dataset_id}")
+                        except Exception as e:
+                            print(f"✗ Error validating {dataset_id}: {e}")
+                            validated_hf.append({
+                                "id": dataset_id,
+                                "name": ds.get("name", "Unknown"),
+                                "url": f"https://huggingface.co/datasets/{dataset_id}",
+                                "downloads": 0,
+                                "likes": 0
+                            })
+                if validated_hf:
+                    huggingface_datasets = validated_hf
 
             # Extract HuggingFace models (keep as-is)
             if data_sources.get("huggingface_models"):
@@ -535,6 +857,40 @@ async def chat_with_gemini_agent(
         if huggingface_models:
             response_dict["huggingface_models"] = huggingface_models
 
+        # Add downloadable_datasets for agent responses
+        downloadable_datasets = []
+        if kaggle_datasets:
+            for ds in kaggle_datasets:
+                dataset_ref = ds.get('ref', '')
+                dataset_url = ds.get('url', '')
+                if not dataset_url and dataset_ref:
+                    dataset_url = "https://www.kaggle.com/datasets/" + dataset_ref
+
+                downloadable_datasets.append({
+                    "id": dataset_ref,
+                    "title": ds.get('title', ds.get('name', 'Unknown')),
+                    "source": "Kaggle",
+                    "url": dataset_url,
+                    "downloads": ds.get('download_count', 0)
+                })
+        if huggingface_datasets:
+            for ds in huggingface_datasets:
+                dataset_id = ds.get('id') or ds.get('name', '')
+                dataset_url = ds.get('url', '')
+                # Fallback: construct URL if missing
+                if not dataset_url and dataset_id:
+                    dataset_url = f"https://huggingface.co/datasets/{dataset_id}"
+
+                downloadable_datasets.append({
+                    "id": dataset_id,
+                    "title": ds.get('name', ds.get('title', 'Unknown')),
+                    "source": "HuggingFace",
+                    "url": dataset_url,
+                    "downloads": ds.get('downloads', 0)
+                })
+        if downloadable_datasets:
+            response_dict["downloadable_datasets"] = downloadable_datasets
+
         return MessageResponse(**response_dict)
 
     except Exception as e:
@@ -542,11 +898,12 @@ async def chat_with_gemini_agent(
         # Clean up user message if indexer fails
         await mongodb.database["messages"].delete_one({"_id": user_message.id})
 
-        # Check if it's a quota/rate limit error
+        # Check if it's a quota/rate limit/API key error
         error_str = str(e).lower()
         is_quota_error = any(keyword in error_str for keyword in [
             'quota', 'rate limit', 'resource exhausted', '429',
-            'exceeded', 'billing', 'free tier'
+            'exceeded', 'billing', 'free tier', 'api key', 'leaked',
+            '403', 'forbidden', 'invalid api key', 'unauthorized'
         ])
 
         # Return user-friendly message based on error type

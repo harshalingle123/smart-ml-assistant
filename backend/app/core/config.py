@@ -50,6 +50,12 @@ class Settings(BaseSettings):
     KAGGLE_USERNAME: Optional[str] = None
     KAGGLE_KEY: Optional[str] = None
 
+    # HuggingFace Configuration
+    HF_TOKEN: Optional[str] = None
+
+    # Dataset Download Configuration
+    DOWNLOAD_PATH: str = "./data/downloads"
+
     @property
     def cors_origins_list(self) -> List[str]:
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",")]

@@ -5,6 +5,7 @@ Direct Gemini API integration without function calling - just system prompt
 
 import google.generativeai as genai
 from app.core.config import settings
+from app.services.url_extractor_service import url_extractor_service
 import json
 import re
 from typing import Dict, Any, List, Optional
@@ -14,7 +15,11 @@ class SimpleGeminiIndexer:
     def __init__(self):
         self.model = None
         if settings.GOOGLE_GEMINI_API_KEY:
-            genai.configure(api_key=settings.GOOGLE_GEMINI_API_KEY)
+            try:
+                genai.configure(api_key=settings.GOOGLE_GEMINI_API_KEY)
+            except Exception as e:
+                print(f"Failed to configure Gemini API: {e}")
+                return
 
             # System prompt for the indexer
             self.system_prompt = """You are a Specialized ML/AI Resource Indexer and Assistant.
@@ -37,14 +42,20 @@ STRICT OPERATIONAL RULES:
    - "name": The descriptive name (string)
    - "url": The full resource URL (string)
 
-5. Schema Enforcement: The JSON structure must strictly follow the defined schema below.
+5. URL Format Requirements (CRITICAL):
+   - Kaggle datasets MUST use: https://www.kaggle.com/datasets/{username}/{dataset-name}
+   - HuggingFace datasets MUST use: https://huggingface.co/datasets/{org}/{dataset-name}
+   - ONLY provide URLs for datasets that actually exist - do NOT predict or make up URLs
+   - If you're uncertain about a dataset's exact URL, include it in your user_message text instead
 
-6. Zero-Shot Policy: Do NOT include any real examples, prior conversation references, or placeholder content outside of the defined JSON schema and current query result set. All arrays (kaggle_datasets, huggingface_datasets, huggingface_models) must be empty if no results are found for the current query.
+6. Schema Enforcement: The JSON structure must strictly follow the defined schema below.
+
+7. Zero-Shot Policy: Do NOT include any real examples, prior conversation references, or placeholder content outside of the defined JSON schema and current query result set. All arrays (kaggle_datasets, huggingface_datasets, huggingface_models) must be empty if no results are found for the current query.
 
 REQUIRED JSON SCHEMA:
 {
   "query": "The user's original search query (string)",
-  "user_message": "A friendly, helpful message describing what you found. Be conversational and concise. If you found datasets/models, mention that they're displayed below as interactive cards. Don't list the datasets/models in the message - just provide context and guidance. Keep it under 3 sentences.",
+  "user_message": "A friendly, helpful message describing what you found. Include actual URLs in this message if you want to suggest datasets. For example: 'I've found some excellent datasets for house prices! Check out https://www.kaggle.com/datasets/harlfoxem/housesalesprediction and https://huggingface.co/datasets/ashishkg1607/house-price-prediction.' Be conversational and concise. Keep it under 3-4 sentences.",
   "data_sources": {
     "kaggle_datasets": [
       {
@@ -69,7 +80,7 @@ REQUIRED JSON SCHEMA:
 
 CRITICAL: The response must be parseable as JSON. Do NOT include markdown code blocks, explanations, or any text outside the JSON structure.
 
-For each user query, provide relevant, real resources from Kaggle and HuggingFace that match their needs. The user_message should be friendly and guide the user on what to do next (e.g., "I've found some great datasets for house price prediction! You can browse them below, click to add them to your collection, or start training a model right away.")"""
+For each user query, provide relevant, real resources from Kaggle and HuggingFace that match their needs. IMPORTANT: Include actual dataset URLs in your user_message text so they can be extracted and validated. The user_message should be friendly and guide the user on what to do next."""
 
             # Create model with system instruction (no tools)
             try:
@@ -213,6 +224,43 @@ For each user query, provide relevant, real resources from Kaggle and HuggingFac
             if "huggingface_models" not in data_sources:
                 data_sources["huggingface_models"] = []
 
+            # CRITICAL FIX: Extract actual URLs from Gemini's text response
+            # This prevents Gemini from hallucinating/predicting wrong URLs
+            print("Extracting exact URLs from response text...")
+            extracted_urls = url_extractor_service.extract_dataset_urls(response_text)
+
+            # Merge extracted URLs with Gemini's JSON response
+            # Priority: Real extracted URLs > Gemini's predicted URLs
+            if extracted_urls:
+                print(f"Found {len(extracted_urls)} exact URLs in response")
+
+                # Separate by source
+                kaggle_extracted = [url for url in extracted_urls if url['source'] == 'Kaggle']
+                hf_extracted = [url for url in extracted_urls if url['source'] == 'HuggingFace']
+
+                # Replace Gemini's predicted URLs with real ones
+                if kaggle_extracted:
+                    data_sources['kaggle_datasets'] = [
+                        {
+                            "name": ds.get('title', ds.get('id', 'Unknown')),
+                            "url": ds['url'],
+                            "ref": ds['id']  # Store the dataset ID/ref
+                        }
+                        for ds in kaggle_extracted
+                    ]
+                    print(f"Replaced with {len(kaggle_extracted)} real Kaggle URLs")
+
+                if hf_extracted:
+                    data_sources['huggingface_datasets'] = [
+                        {
+                            "name": ds.get('title', ds.get('id', 'Unknown')),
+                            "url": ds['url'],
+                            "id": ds['id']  # Store the dataset ID
+                        }
+                        for ds in hf_extracted
+                    ]
+                    print(f"Replaced with {len(hf_extracted)} real HuggingFace URLs")
+
             # Log what was found
             print(f"Kaggle datasets: {len(data_sources['kaggle_datasets'])}")
             print(f"HuggingFace datasets: {len(data_sources['huggingface_datasets'])}")
@@ -245,11 +293,12 @@ For each user query, provide relevant, real resources from Kaggle and HuggingFac
             import traceback
             traceback.print_exc()
 
-            # Check if it's a quota/rate limit error
+            # Check if it's a quota/rate limit/API key error
             error_str = str(e).lower()
             is_quota_error = any(keyword in error_str for keyword in [
                 'quota', 'rate limit', 'resource exhausted', '429',
-                'exceeded', 'billing', 'free tier'
+                'exceeded', 'billing', 'free tier', 'api key', 'leaked',
+                '403', 'forbidden', 'invalid api key', 'unauthorized'
             ])
 
             # Return user-friendly message based on error type

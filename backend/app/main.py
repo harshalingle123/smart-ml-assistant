@@ -7,6 +7,34 @@ from app.routers import auth, chats, messages, datasets, models, finetune, apike
 from app.mongodb import mongodb
 from starlette.middleware.base import BaseHTTPMiddleware
 import asyncio
+import logging
+import sys
+import io
+
+logger = logging.getLogger(__name__)
+
+# ========================================
+# Fix Windows Console Encoding Issues
+# ========================================
+# Windows uses cp1252 encoding by default, which can't handle Unicode characters
+# Reconfigure stdout/stderr to use UTF-8 with error handling
+if sys.platform == 'win32':
+    try:
+        sys.stdout = io.TextIOWrapper(
+            sys.stdout.buffer,
+            encoding='utf-8',
+            errors='replace',  # Replace unencodable chars instead of crashing
+            line_buffering=True
+        )
+        sys.stderr = io.TextIOWrapper(
+            sys.stderr.buffer,
+            encoding='utf-8',
+            errors='replace',
+            line_buffering=True
+        )
+        logger.info("[CONFIG] Windows console encoding set to UTF-8")
+    except Exception as e:
+        logger.warning(f"[CONFIG] Could not set UTF-8 encoding: {e}")
 
 # IMPORTANT: Configure multipart limits BEFORE creating FastAPI app
 # This fixes the "field larger than field limit" error
@@ -20,9 +48,9 @@ if hasattr(FormParser, 'DEFAULT_CONFIG'):
     # Update the default max sizes for all parsers
     FormParser.DEFAULT_CONFIG['MAX_BODY_SIZE'] = settings.MAX_UPLOAD_SIZE
     FormParser.DEFAULT_CONFIG['MAX_MEMORY_FILE_SIZE'] = settings.MAX_UPLOAD_SIZE
-    print(f"[CONFIG] FormParser DEFAULT_CONFIG updated:")
-    print(f"  MAX_BODY_SIZE: {FormParser.DEFAULT_CONFIG.get('MAX_BODY_SIZE', 'Not set')}")
-    print(f"  MAX_MEMORY_FILE_SIZE: {FormParser.DEFAULT_CONFIG.get('MAX_MEMORY_FILE_SIZE', 'Not set')}")
+    logger.info(f"[CONFIG] FormParser DEFAULT_CONFIG updated:")
+    logger.info(f"  MAX_BODY_SIZE: {FormParser.DEFAULT_CONFIG.get('MAX_BODY_SIZE', 'Not set')}")
+    logger.info(f"  MAX_MEMORY_FILE_SIZE: {FormParser.DEFAULT_CONFIG.get('MAX_MEMORY_FILE_SIZE', 'Not set')}")
 
 # Set Starlette's max_file_size
 starlette.formparsers.MultiPartParser.max_file_size = settings.MAX_UPLOAD_SIZE
@@ -55,10 +83,10 @@ async def global_exception_handler(request: Request, exc: Exception):
     """
     import traceback
     error_details = traceback.format_exc()
-    print(f"❌ Unhandled exception: {str(exc)}")
-    print(f"   Path: {request.url.path}")
-    print(f"   Method: {request.method}")
-    print(f"   Traceback:\n{error_details}")
+    logger.error(f"❌ Unhandled exception: {str(exc)}")
+    logger.error(f"   Path: {request.url.path}")
+    logger.error(f"   Method: {request.method}")
+    logger.error(f"   Traceback:\n{error_details}")
 
     return JSONResponse(
         status_code=500,
@@ -74,10 +102,10 @@ async def global_exception_handler(request: Request, exc: Exception):
 from starlette.datastructures import UploadFile as StarletteUploadFile
 StarletteUploadFile.spool_max_size = settings.MAX_UPLOAD_SIZE
 
-print(f"[CONFIG] Maximum upload size set to: {settings.MAX_UPLOAD_SIZE / (1024 * 1024):.0f} MB")
-print(f"[CONFIG] MultiPartParser max_file_size: {starlette.formparsers.MultiPartParser.max_file_size / (1024 * 1024):.0f} MB")
-print(f"[CONFIG] UploadFile spool_max_size: {StarletteUploadFile.spool_max_size / (1024 * 1024):.0f} MB")
-print(f"[CONFIG] python-multipart File and Field classes patched for large uploads")
+logger.info(f"[CONFIG] Maximum upload size set to: {settings.MAX_UPLOAD_SIZE / (1024 * 1024):.0f} MB")
+logger.info(f"[CONFIG] MultiPartParser max_file_size: {starlette.formparsers.MultiPartParser.max_file_size / (1024 * 1024):.0f} MB")
+logger.info(f"[CONFIG] UploadFile spool_max_size: {StarletteUploadFile.spool_max_size / (1024 * 1024):.0f} MB")
+logger.info(f"[CONFIG] python-multipart File and Field classes patched for large uploads")
 
 # CORS Configuration
 # In production, use explicit origins from CORS_ORIGINS env var
@@ -91,7 +119,7 @@ app.add_middleware(
 )
 
 # Log CORS configuration for debugging
-print(f"[CONFIG] CORS Origins: {settings.cors_origins_list}")
+logger.info(f"[CONFIG] CORS Origins: {settings.cors_origins_list}")
 
 app.add_middleware(TimeoutMiddleware)
 app.add_middleware(RequestSizeLimitMiddleware)
@@ -118,13 +146,13 @@ app.include_router(automl.router)
 @app.on_event("startup")
 async def startup_db_client():
     try:
-        print("Starting application...")
-        print(f"   Environment: {settings.ENVIRONMENT}")
-        print(f"   Upload limit: {settings.MAX_UPLOAD_SIZE_MB} MB")
+        logger.info("Starting application...")
+        logger.info(f"   Environment: {settings.ENVIRONMENT}")
+        logger.info(f"   Upload limit: {settings.MAX_UPLOAD_SIZE_MB} MB")
         await mongodb.connect()
-        print("Application startup complete")
+        logger.info("Application startup complete")
     except Exception as e:
-        print(f"Error during startup: {str(e)}")
+        logger.error(f"Error during startup: {str(e)}")
         # Don't raise - allow app to start even with errors
         # Health check will report the issue
 
@@ -133,7 +161,7 @@ async def shutdown_db_client():
     try:
         await mongodb.close()
     except Exception as e:
-        print(f"Error during shutdown: {str(e)}")
+        logger.error(f"Error during shutdown: {str(e)}")
 
 
 @app.get("/")

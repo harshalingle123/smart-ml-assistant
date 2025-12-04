@@ -22,6 +22,9 @@ class MessageResponse(BaseModel):
     timestamp: datetime
     metadata: Optional[Any] = None  # For storing dataset search results and other metadata
     kaggle_datasets: Optional[Any] = None  # For agent dataset recommendations
+    huggingface_datasets: Optional[Any] = None  # For agent HuggingFace dataset recommendations
+    huggingface_models: Optional[Any] = None  # For agent HuggingFace model recommendations
+    downloadable_datasets: Optional[Any] = None  # For dataset download functionality
 
     class Config:
         from_attributes = True

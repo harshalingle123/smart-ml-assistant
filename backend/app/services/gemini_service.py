@@ -1,25 +1,66 @@
-from typing import List, Dict, Optional, Any
-import google.generativeai as genai
-from app.core.config import settings
+import asyncio
 import json
+import logging
+from typing import List, Dict, Optional, Any, Union
 
+import google.generativeai as genai
+from sklearn.metrics.pairwise import cosine_similarity
+
+from app.core.config import settings
+
+# Configure logger
+logger = logging.getLogger(__name__)
+
+DEFAULT_MODELS = [
+    settings.GEMINI_MODEL,
+    "gemini-1.5-flash",
+    "gemini-pro",
+]
 
 class GeminiService:
-    def __init__(self):
-        self.model = None
-        if settings.GOOGLE_GEMINI_API_KEY:
+    """
+    Service for interacting with Google's Gemini API.
+    Handles model initialization, chat generation, and various ML-assistant tasks.
+    """
+
+    def __init__(self) -> None:
+        """Initialize the GeminiService and load the model."""
+        self.model: Optional[genai.GenerativeModel] = self._load_model()
+
+    def _load_model(self) -> Optional[genai.GenerativeModel]:
+        """
+        Attempt to load a Gemini model from the fallback list.
+        
+        Returns:
+            genai.GenerativeModel or None if initialization fails.
+        """
+        if not settings.GOOGLE_GEMINI_API_KEY:
+            logger.warning("GOOGLE_GEMINI_API_KEY not set. Gemini service will be unavailable.")
+            return None
+
+        try:
             genai.configure(api_key=settings.GOOGLE_GEMINI_API_KEY)
+        except Exception as e:
+            logger.error(f"Failed to configure Gemini API: {e}")
+            return None
+
+        for model_name in DEFAULT_MODELS:
+            if not model_name:
+                continue
             try:
-                self.model = genai.GenerativeModel(settings.GEMINI_MODEL)
+                logger.info(f"Attempting to load Gemini model: {model_name}")
+                model = genai.GenerativeModel(model_name)
+                # Test the model with a lightweight call or just assume it works if no error
+                logger.info(f"Successfully loaded {model_name}")
+                return model
             except Exception as e:
-                print(f"Failed to load {settings.GEMINI_MODEL}, falling back to gemini-1.5-flash: {e}")
-                try:
-                    self.model = genai.GenerativeModel("gemini-1.5-flash")
-                except Exception as e2:
-                    print(f"Failed to load gemini-1.5-flash, trying gemini-pro: {e2}")
-                    self.model = genai.GenerativeModel("gemini-pro")
+                logger.warning(f"Failed to load {model_name}: {e}")
+
+        logger.error("All fallback models failed. Gemini service is unavailable.")
+        return None
 
     def is_available(self) -> bool:
+        """Check if the Gemini model is successfully loaded."""
         return self.model is not None
 
     async def generate_response(
@@ -27,6 +68,20 @@ class GeminiService:
         messages: List[Dict[str, str]],
         system_prompt: Optional[str] = None,
     ) -> str:
+        """
+        Generate a response from the Gemini model based on chat history.
+
+        Args:
+            messages: List of message dictionaries with 'role' and 'content'.
+            system_prompt: Optional system prompt to guide the model's behavior.
+
+        Returns:
+            The generated response string.
+
+        Raises:
+            ValueError: If the API is not configured.
+            Exception: If an API error occurs (quota, rate limit, etc.).
+        """
         if not self.is_available():
             raise ValueError("Gemini API is not configured. Please set GOOGLE_GEMINI_API_KEY in environment variables.")
 
@@ -46,7 +101,6 @@ unique patterns that could benefit from custom model training."""
 
         try:
             chat_history = []
-
             for msg in messages[:-1]:
                 role = "user" if msg["role"] == "user" else "model"
                 chat_history.append({
@@ -54,30 +108,102 @@ unique patterns that could benefit from custom model training."""
                     "parts": [msg["content"]]
                 })
 
-            chat = self.model.start_chat(history=chat_history)
-
             user_message = messages[-1]["content"]
             full_prompt = f"{system_prompt}\n\nUser: {user_message}"
 
-            response = chat.send_message(full_prompt)
-
-            return response.text
+            # Run blocking I/O in a separate thread
+            response = await asyncio.to_thread(
+                self._run_chat, chat_history, full_prompt
+            )
+            return response
 
         except Exception as e:
-            # Check if it's a quota/rate limit error
             error_str = str(e).lower()
             is_quota_error = any(keyword in error_str for keyword in [
                 'quota', 'rate limit', 'resource exhausted', '429',
-                'exceeded', 'billing', 'free tier'
+                'exceeded', 'billing', 'free tier', 'api key', 'leaked',
+                '403', 'forbidden', 'invalid api key', 'unauthorized'
             ])
 
-            # Return user-friendly message based on error type
             if is_quota_error:
+                logger.error(f"Gemini Quota/Auth Error: {e}")
                 raise Exception("We're experiencing high demand at the moment. For assistance, please contact us at info@darshix.com")
             else:
+                logger.error(f"Gemini General Error: {e}")
                 raise Exception("We're experiencing technical difficulties. Please try again or contact us at info@darshix.com for support.")
 
-    async def analyze_dataset_query(self, user_message: str) -> Dict[str, any]:
+    def _run_chat(self, history: List[Dict[str, Any]], prompt: str) -> str:
+        """Helper to run chat generation synchronously."""
+        if not self.model:
+            raise ValueError("Model not initialized")
+        chat = self.model.start_chat(history=history)
+        response = chat.send_message(prompt)
+        return response.text
+
+    async def analyze_dataset_query(self, user_message: str) -> Dict[str, Any]:
+        """
+        Analyze a user's query using LLM to determine query type and intent.
+
+        Args:
+            user_message: The raw user message.
+
+        Returns:
+            A dictionary containing query type, task type, and search parameters.
+        """
+        if not self.is_available():
+            return self._fallback_query_analysis(user_message)
+
+        prompt = f"""Analyze this user query and classify it into categories.
+
+Query: "{user_message}"
+
+Return ONLY a JSON object with these exact fields:
+{{
+    "query_type": "dataset_search|data_analysis|simple",
+    "task_type": "sentiment_analysis|text_classification|nlp|computer_vision|time_series|regression|clustering|other",
+    "needs_kaggle_search": true|false,
+    "search_query": "optimized search query for dataset search (empty string if not dataset search)",
+    "intent_summary": "brief summary of what the user wants to accomplish"
+}}
+
+Classification guidelines:
+- query_type is "dataset_search" if user wants to find/download/search for datasets
+- query_type is "data_analysis" if user wants to analyze, visualize, or get statistics
+- query_type is "simple" for general questions or conversations
+- needs_kaggle_search should be true only if query_type is "dataset_search"
+- search_query should be optimized keywords for finding relevant datasets
+- task_type should identify the ML task domain
+
+Return only valid JSON, no markdown."""
+
+        try:
+            response_text = await asyncio.to_thread(self._generate_content_sync, prompt)
+            result = self._parse_json(response_text)
+
+            logger.info(f"LLM query analysis: {result.get('query_type')} - {result.get('task_type')}")
+
+            return {
+                "query_type": result.get("query_type", "simple"),
+                "task_type": result.get("task_type", "other"),
+                "needs_kaggle_search": result.get("needs_kaggle_search", False),
+                "search_query": result.get("search_query", ""),
+                "intent_summary": result.get("intent_summary", user_message[:100])
+            }
+
+        except Exception as e:
+            logger.warning(f"LLM query analysis failed: {e}, falling back to keyword matching")
+            return self._fallback_query_analysis(user_message)
+
+    def _fallback_query_analysis(self, user_message: str) -> Dict[str, Any]:
+        """
+        Fallback keyword-based query analysis when LLM is unavailable.
+
+        Args:
+            user_message: The raw user message.
+
+        Returns:
+            A dictionary containing query type, task type, and search parameters.
+        """
         user_lower = user_message.lower()
 
         dataset_search_keywords = [
@@ -92,14 +218,14 @@ unique patterns that could benefit from custom model training."""
         ]
 
         needs_dataset_search = any(keyword in user_lower for keyword in dataset_search_keywords)
-
         is_data_analysis = any(keyword in user_lower for keyword in data_analysis_keywords)
 
         result = {
             "query_type": "dataset_search" if needs_dataset_search else ("data_analysis" if is_data_analysis else "simple"),
             "task_type": "other",
             "needs_kaggle_search": needs_dataset_search,
-            "search_query": ""
+            "search_query": "",
+            "intent_summary": user_message[:100]
         }
 
         if "sentiment" in user_lower:
@@ -125,17 +251,26 @@ unique patterns that could benefit from custom model training."""
         elif needs_dataset_search:
             words = user_lower.split()
             if "for" in words:
-                idx = words.index("for")
-                result["search_query"] = " ".join(words[idx+1:idx+4])
+                try:
+                    idx = words.index("for")
+                    result["search_query"] = " ".join(words[idx+1:idx+4])
+                except IndexError:
+                    result["search_query"] = user_message[:50]
             elif "about" in words:
-                idx = words.index("about")
-                result["search_query"] = " ".join(words[idx+1:idx+4])
+                try:
+                    idx = words.index("about")
+                    result["search_query"] = " ".join(words[idx+1:idx+4])
+                except IndexError:
+                    result["search_query"] = user_message[:50]
             else:
                 result["search_query"] = user_message[:50]
 
         return result
 
     async def extract_intent_from_natural_language(self, user_query: str) -> Dict[str, Any]:
+        """
+        Use LLM to extract structured ML intent from a natural language query.
+        """
         if not self.is_available():
             raise ValueError("Gemini API is not configured")
 
@@ -162,17 +297,10 @@ Extract and return ONLY a JSON object with these fields:
 Return only valid JSON, no explanations."""
 
         try:
-            response = self.model.generate_content(prompt)
-            text = response.text.strip()
-
-            if text.startswith("```json"):
-                text = text[7:]
-            if text.endswith("```"):
-                text = text[:-3]
-            text = text.strip()
-
-            return json.loads(text)
+            response_text = await asyncio.to_thread(self._generate_content_sync, prompt)
+            return self._parse_json(response_text)
         except Exception as e:
+            logger.error(f"Error extracting intent: {e}")
             return {
                 "task_type": "unknown",
                 "domain": "general",
@@ -184,6 +312,9 @@ Return only valid JSON, no explanations."""
             }
 
     async def structure_requirements(self, intent: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Generate technical requirements based on the extracted intent.
+        """
         if not self.is_available():
             raise ValueError("Gemini API is not configured")
 
@@ -215,17 +346,10 @@ Return ONLY a JSON object with:
 Return only valid JSON."""
 
         try:
-            response = self.model.generate_content(prompt)
-            text = response.text.strip()
-
-            if text.startswith("```json"):
-                text = text[7:]
-            if text.endswith("```"):
-                text = text[:-3]
-            text = text.strip()
-
-            return json.loads(text)
-        except Exception:
+            response_text = await asyncio.to_thread(self._generate_content_sync, prompt)
+            return self._parse_json(response_text)
+        except Exception as e:
+            logger.error(f"Error structuring requirements: {e}")
             return {
                 "dataset_requirements": {
                     "min_samples": 1000,
@@ -239,6 +363,9 @@ Return only valid JSON."""
             }
 
     async def generate_clarifying_questions(self, requirements: Dict[str, Any]) -> List[str]:
+        """
+        Generate questions to clarify missing or ambiguous requirements.
+        """
         if not self.is_available():
             raise ValueError("Gemini API is not configured")
 
@@ -257,18 +384,11 @@ Return as JSON array of strings: ["question1", "question2", ...]
 Return only valid JSON array."""
 
         try:
-            response = self.model.generate_content(prompt)
-            text = response.text.strip()
-
-            if text.startswith("```json"):
-                text = text[7:]
-            if text.endswith("```"):
-                text = text[:-3]
-            text = text.strip()
-
-            questions = json.loads(text)
+            response_text = await asyncio.to_thread(self._generate_content_sync, prompt)
+            questions = self._parse_json(response_text)
             return questions if isinstance(questions, list) else []
-        except Exception:
+        except Exception as e:
+            logger.error(f"Error generating questions: {e}")
             return [
                 "Do you have an existing dataset or need help finding one?",
                 "What is your priority: speed, accuracy, or cost?",
@@ -277,6 +397,9 @@ Return only valid JSON array."""
             ]
 
     async def explain_technical_decision_business_friendly(self, decision: Dict[str, Any]) -> str:
+        """
+        Explain a technical decision in simple, business-friendly terms.
+        """
         if not self.is_available():
             raise ValueError("Gemini API is not configured")
 
@@ -293,12 +416,15 @@ Provide a clear, non-technical explanation that:
 Return plain text explanation, no formatting."""
 
         try:
-            response = self.model.generate_content(prompt)
-            return response.text.strip()
-        except Exception:
+            return await asyncio.to_thread(self._generate_content_sync, prompt)
+        except Exception as e:
+            logger.error(f"Error explaining decision: {e}")
             return "We've selected an optimal model based on your requirements, balancing performance, cost, and speed."
 
     async def generate_progress_update(self, training_job: Dict[str, Any], phase: str) -> str:
+        """
+        Generate a friendly progress update message.
+        """
         if not self.is_available():
             raise ValueError("Gemini API is not configured")
 
@@ -315,9 +441,9 @@ Provide a brief, encouraging update (2-3 sentences) that:
 Return plain text, conversational tone."""
 
         try:
-            response = self.model.generate_content(prompt)
-            return response.text.strip()
-        except Exception:
+            return await asyncio.to_thread(self._generate_content_sync, prompt)
+        except Exception as e:
+            logger.error(f"Error generating progress update: {e}")
             status_messages = {
                 "preparing": "Getting your training environment ready. This usually takes a few minutes.",
                 "training": "Training is in progress. Your model is learning from the data.",
@@ -327,5 +453,125 @@ Return plain text, conversational tone."""
             }
             return status_messages.get(phase, "Processing your request...")
 
+    async def extract_spec(self, user_query: str) -> Dict[str, Any]:
+        """
+        Uses Gemini to fix typos and extract search keywords for dataset search.
+        """
+        if not self.is_available():
+            return {"fixed_query": user_query, "keywords": [user_query]}
 
+        logger.info(f"Analyzing query: '{user_query}'...")
+        
+        # Use a specific model for extraction if possible, or fallback to main model
+        # The original code used 'gemini-2.5-flash', which might be a typo or specific version.
+        # We'll try to use the configured model or a lightweight one.
+        
+        prompt = f"""
+        Act as a search query optimizer for a dataset recommendation engine.
+
+        Task:
+        1. Analyze the User Query: "{user_query}"
+        2. Fix any spelling mistakes (e.g., "dibetes" -> "diabetes", "santiment" -> "sentiment", "analussi" -> "analysis").
+
+        Return ONLY valid JSON with no markdown formatting:
+        {{
+            "fixed_query": "corrected query string",
+            "keywords": ["keyword1", "keyword2", "keyword3"]
+        }}
+        """
+
+        try:
+            # We use the main model here to avoid instantiating a new one every time
+            # unless we really need a specific one. 
+            response_text = await asyncio.to_thread(self._generate_content_sync, prompt)
+            result = self._parse_json(response_text)
+            logger.info(f"✓ Fixed query: '{result.get('fixed_query', user_query)}'")
+            logger.info(f"✓ Keywords: {result.get('keywords', [])}")
+            return result
+
+        except Exception as e:
+            logger.warning(f"Gemini Extraction Warning: {e}")
+            return {"fixed_query": user_query, "keywords": [user_query]}
+
+    async def rank_candidates(
+        self,
+        query: str,
+        candidates: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """
+        Ranks datasets using Gemini Embeddings and Cosine Similarity.
+        """
+        if not candidates:
+            return []
+
+        if not self.is_available():
+            logger.warning("Gemini not available, returning unranked candidates")
+            return candidates
+
+        logger.info("Ranking candidates using embeddings...")
+        try:
+            return await asyncio.to_thread(self._rank_candidates_sync, query, candidates)
+        except Exception as e:
+            logger.error(f"Ranking failed: {e}")
+            return candidates
+
+    def _rank_candidates_sync(self, query: str, candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Synchronous helper for ranking."""
+        # 1. Embed Query
+        query_emb = genai.embed_content(
+            model="models/text-embedding-004",
+            content=query,
+            task_type="retrieval_query"
+        )['embedding']
+
+        # 2. Embed Candidates
+        texts = [f"{c.get('title', '')}: {str(c.get('description', ''))[:500]}" for c in candidates]
+
+        batch_emb = genai.embed_content(
+            model="models/text-embedding-004",
+            content=texts,
+            task_type="retrieval_document"
+        )['embedding']
+
+        # 3. Compute Similarity
+        scores = cosine_similarity([query_emb], batch_emb)[0]
+
+        for idx, score in enumerate(scores):
+            candidates[idx]['score'] = float(score)
+
+        # Sort descending
+        return sorted(candidates, key=lambda x: x.get('score', 0), reverse=True)
+
+    async def rank_datasets_by_relevance(
+        self,
+        query: str,
+        datasets: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """
+        Backward compatibility wrapper for rank_candidates().
+        Maps 'relevance_score' to 'score' for existing code.
+        """
+        ranked = await self.rank_candidates(query, datasets)
+        for ds in ranked:
+            if 'score' in ds:
+                ds['relevance_score'] = ds['score']
+        return ranked
+
+    def _generate_content_sync(self, prompt: str) -> str:
+        """Helper to generate content synchronously."""
+        if not self.model:
+            raise ValueError("Model not initialized")
+        response = self.model.generate_content(prompt)
+        return response.text.strip()
+
+    def _parse_json(self, text: str) -> Any:
+        """Helper to clean and parse JSON from LLM response."""
+        text = text.strip()
+        if text.startswith("```json"):
+            text = text[7:]
+        if text.endswith("```"):
+            text = text[:-3]
+        return json.loads(text.strip())
+
+# Global instance for backward compatibility
 gemini_service = GeminiService()

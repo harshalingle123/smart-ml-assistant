@@ -16,9 +16,9 @@ backend/
 │   │   ├── config.py                  # Application configuration and settings
 │   │   └── security.py                # Authentication and password hashing
 │   │
-│   ├── models/                        # SQLAlchemy database models
+│   ├── models/                        # MongoDB models (Beanie/Motor)
 │   │   ├── __init__.py
-│   │   └── database_models.py         # All database table models
+│   │   └── mongodb_models.py          # All database document models
 │   │
 │   ├── schemas/                       # Pydantic schemas for validation
 │   │   ├── __init__.py
@@ -40,13 +40,6 @@ backend/
 │       ├── finetune.py                # Fine-tuning job endpoints
 │       └── apikeys.py                 # API key management
 │
-├── alembic/                           # Database migrations
-│   ├── versions/                      # Migration version files
-│   │   └── 001_initial_migration.py   # Initial database schema
-│   ├── env.py                         # Alembic environment configuration
-│   └── script.py.mako                 # Migration template
-│
-├── alembic.ini                        # Alembic configuration file
 ├── requirements.txt                   # Python package dependencies
 ├── .env.example                       # Environment variables template
 ├── .gitignore                         # Git ignore rules
@@ -62,15 +55,14 @@ backend/
 
 ### Configuration Files
 
-- **requirements.txt**: Lists all Python dependencies (FastAPI, SQLAlchemy, etc.)
-- **alembic.ini**: Alembic migration tool configuration
+- **requirements.txt**: Lists all Python dependencies (FastAPI, Motor, etc.)
 - **.env.example**: Template for environment variables (copy to .env)
 - **.gitignore**: Files and directories to exclude from git
 
 ### Application Core
 
 - **app/main.py**: FastAPI app initialization, middleware setup, router registration
-- **app/database.py**: Async database engine and session factory
+- **app/mongodb.py**: Async MongoDB client connection
 - **app/dependencies.py**: Reusable dependency functions (e.g., get_current_user)
 - **app/middleware.py**: Custom middleware for request/response logging
 
@@ -79,9 +71,9 @@ backend/
 - **app/core/config.py**: Centralized settings using Pydantic BaseSettings
 - **app/core/security.py**: JWT token creation/validation, password hashing
 
-### Database Models (SQLAlchemy)
+### Database Models (MongoDB)
 
-All models in **app/models/database_models.py**:
+All models in **app/models/mongodb_models.py**:
 - **User**: User accounts with authentication and usage tracking
 - **Chat**: Chat sessions with model and dataset associations
 - **Message**: Individual messages within chats
@@ -113,9 +105,7 @@ Located in **app/routers/**:
 
 ### Database Migrations
 
-- **alembic/env.py**: Alembic environment setup for async SQLAlchemy
-- **alembic/versions/**: Migration scripts (auto-generated or manual)
-- **alembic.ini**: Alembic settings (migration location, logging)
+*Note: MongoDB is schemaless, so strict migrations like Alembic are not used. Schema validation is handled by Pydantic models at the application level.*
 
 ### Utility Scripts
 

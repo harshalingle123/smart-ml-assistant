@@ -21,11 +21,9 @@ class MongoDB:
 
             # Verify connection with a ping
             await self.client.admin.command('ping')
-            print("Connected to MongoDB successfully")
             logger.info("Connected to MongoDB successfully")
         except Exception as e:
             error_msg = f"Failed to connect to MongoDB: {str(e)}"
-            print(error_msg)
             logger.error(error_msg)
             # Don't raise - allow app to start even if MongoDB is temporarily unavailable
             # Health check will show the issue
@@ -34,7 +32,6 @@ class MongoDB:
         try:
             if self.client:
                 self.client.close()
-                print("Disconnected from MongoDB")
                 logger.info("Disconnected from MongoDB")
         except Exception as e:
             logger.error(f"Error closing MongoDB connection: {str(e)}")

@@ -230,7 +230,7 @@ export default function Register() {
                 text="continue_with"
                 theme="filled_black"
                 size="large"
-                width="100%"
+                width="400"
               />
             </div>
 
