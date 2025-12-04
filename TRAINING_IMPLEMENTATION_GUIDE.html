@@ -1,0 +1,1001 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset=utf-8>
+<title>Training Implementation Guide</title>
+<style>
+body { font-family: Arial, sans-serif; max-width: 900px; margin: 0 auto; padding: 20px; line-height: 1.6; }
+h1 { color: #2c3e50; border-bottom: 3px solid #3498db; padding-bottom: 10px; }
+h2 { color: #34495e; border-bottom: 2px solid #95a5a6; padding-bottom: 8px; margin-top: 30px; }
+h3 { color: #2c3e50; margin-top: 20px; }
+code { background: #f4f4f4; padding: 2px 6px; border-radius: 3px; color: #c7254e; }
+pre { background: #2d2d2d; color: #f8f8f2; padding: 15px; border-radius: 5px; overflow-x: auto; }
+pre code { background: transparent; color: #f8f8f2; padding: 0; }
+table { border-collapse: collapse; width: 100%; margin: 20px 0; }
+table th { background: #3498db; color: white; padding: 12px; text-align: left; }
+table td { padding: 10px; border: 1px solid #ddd; }
+table tr:nth-child(even) { background: #f9f9f9; }
+.print-btn { background: #3498db; color: white; border: none; padding: 12px 30px; font-size: 1em; border-radius: 5px; cursor: pointer; margin: 20px 0; }
+.print-btn:hover { background: #2980b9; }
+@media print { .no-print { display: none; } h1 { page-break-before: always; } h1:first-of-type { page-break-before: avoid; } }
+</style>
+</head>
+<body>
+<div class=no-print style="background:#fff3cd;border:2px solid #ffc107;padding:20px;text-align:center;margin-bottom:30px;">
+<strong>To save as PDF:</strong> Press Ctrl+P (Windows) or Cmd+P (Mac), then select Save as PDF
+<br><button class=print-btn onclick="window.print()">Print to PDF</button>
+</div>
+<h1 id="training-implementation-flow-architecture-guide">🚀 Training Implementation Flow &amp; Architecture Guide</h1>
+
+<p><strong>Smart ML Assistant - Complete Training Pipeline Documentation</strong></p>
+
+<hr />
+
+<h2 id="table-of-contents">📋 Table of Contents</h2>
+
+<ol>
+<li><a href="#overview">Overview</a></li>
+<li><a href="#architecture-diagram">Architecture Diagram</a></li>
+<li><a href="#component-flow">Component Flow</a></li>
+<li><a href="#detailed-training-flow">Detailed Training Flow</a></li>
+<li><a href="#code-implementation">Code Implementation</a></li>
+<li><a href="#integration-points">Integration Points</a></li>
+<li><a href="#data-flow">Data Flow</a></li>
+<li><a href="#api-endpoints">API Endpoints</a></li>
+</ol>
+
+<hr />
+
+<h2 id="overview">🎯 Overview</h2>
+
+<p>The Smart ML Assistant implements a <strong>complete end-to-end ML training pipeline</strong> that integrates:
+- Multi-source dataset discovery (Kaggle + HuggingFace)
+- AI-powered model recommendations
+- AutoML training with real-time progress tracking
+- Deployment-ready models</p>
+
+<h3 id="key-features">Key Features:</h3>
+
+<ul>
+<li>✅ Automatic dataset inspection with schema detection</li>
+<li>✅ Auto-detection of target columns</li>
+<li>✅ Real AutoML training using AutoGluon</li>
+<li>✅ Server-Sent Events (SSE) for live progress updates</li>
+<li>✅ Fallback to simulation mode if AutoGluon unavailable</li>
+<li>✅ Production-safe (works with ephemeral filesystems)</li>
+</ul>
+
+<hr />
+
+<h2 id="architecture-diagram">🏗️ Architecture Diagram</h2>
+
+<pre><code>┌─────────────────────────────────────────────────────────────────────┐
+│                         USER INTERFACE                              │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐             │
+│  │   Chat.tsx   │  │ DatasetCard  │  │  useTraining │             │
+│  │              │  │              │  │     Hook     │             │
+│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘             │
+└─────────┼──────────────────┼──────────────────┼────────────────────┘
+          │                  │                  │
+          │ User Query       │ Click Train      │ SSE Connection
+          │                  │                  │
+┌─────────▼──────────────────▼──────────────────▼────────────────────┐
+│                      BACKEND API LAYER                              │
+│  ┌──────────────────┐  ┌──────────────────┐  ┌─────────────────┐  │
+│  │  messages.py     │  │  datasets.py     │  │   automl.py     │  │
+│  │  /api/messages   │  │  /api/datasets   │  │  /api/automl    │  │
+│  │    /chat         │  │    /inspect      │  │    /train       │  │
+│  └────────┬─────────┘  └────────┬─────────┘  └────────┬────────┘  │
+└───────────┼────────────────────┼─────────────────────┼────────────┘
+            │                    │                     │
+            │                    │                     │
+┌───────────▼────────────────────▼─────────────────────▼────────────┐
+│                       SERVICE LAYER                                 │
+│  ┌──────────────────┐  ┌──────────────────┐  ┌─────────────────┐  │
+│  │ ml_orchestrator  │  │ dataset_download │  │  gemini_service │  │
+│  │   .py            │  │   _service.py    │  │      .py        │  │
+│  │                  │  │                  │  │                 │  │
+│  │ - recommend()    │  │ - search()       │  │ - analyze()     │  │
+│  │ - make_decision()│  │ - download()     │  │ - optimize()    │  │
+│  └────────┬─────────┘  └────────┬─────────┘  └────────┬────────┘  │
+└───────────┼────────────────────┼─────────────────────┼────────────┘
+            │                    │                     │
+            │                    │                     │
+┌───────────▼────────────────────▼─────────────────────▼────────────┐
+│                      EXTERNAL SERVICES                              │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐             │
+│  │   Kaggle     │  │ HuggingFace  │  │    Gemini    │             │
+│  │     API      │  │     Hub      │  │     API      │             │
+│  └──────────────┘  └──────────────┘  └──────────────┘             │
+└─────────────────────────────────────────────────────────────────────┘
+            │                    │                     │
+            └────────────────────┼─────────────────────┘
+                                 │
+┌────────────────────────────────▼─────────────────────────────────────┐
+│                         DATA STORAGE                                 │
+│  ┌──────────────────────────────────────────────────────────────┐   │
+│  │                      MongoDB                                  │   │
+│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐       │   │
+│  │  │   datasets   │  │    models    │  │   messages   │       │   │
+│  │  │  collection  │  │  collection  │  │  collection  │       │   │
+│  │  └──────────────┘  └──────────────┘  └──────────────┘       │   │
+│  └──────────────────────────────────────────────────────────────┘   │
+│                                                                      │
+│  ┌──────────────────────────────────────────────────────────────┐   │
+│  │                  File System / Storage                        │   │
+│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐       │   │
+│  │  │  CSV Files   │  │ Trained      │  │  AutoGluon   │       │   │
+│  │  │  (datasets)  │  │  Models      │  │   Cache      │       │   │
+│  │  └──────────────┘  └──────────────┘  └──────────────┘       │   │
+│  └──────────────────────────────────────────────────────────────┘   │
+└──────────────────────────────────────────────────────────────────────┘
+</code></pre>
+
+<hr />
+
+<h2 id="component-flow">🔄 Component Flow</h2>
+
+<h3 id="1-dataset-discovery-flow">1. Dataset Discovery Flow</h3>
+
+<pre><code>┌─────────────┐
+│ User Query  │ "Find sentiment analysis datasets"
+└──────┬──────┘
+       │
+       ▼
+┌──────────────────────────────────────────────┐
+│ messages.py: /api/messages/chat             │
+│                                              │
+│ 1. Analyze query with Gemini                │
+│ 2. Detect: needs_kaggle_search = True       │
+│ 3. Extract search terms                     │
+└──────┬───────────────────────────────────────┘
+       │
+       ▼
+┌──────────────────────────────────────────────┐
+│ dataset_download_service.search_all_sources()│
+│                                              │
+│ 1. Optimize query (fix typos)               │
+│ 2. Search Kaggle API (parallel)             │
+│ 3. Search HuggingFace API (parallel)        │
+│ 4. Rank by semantic relevance               │
+│ 5. Return top 5 combined                    │
+└──────┬───────────────────────────────────────┘
+       │
+       ▼
+┌──────────────────────────────────────────────┐
+│ Response to User                             │
+│                                              │
+│ - Top 5 datasets with metadata               │
+│ - Relevance scores                           │
+│ - Download counts                            │
+│ - Source breakdown (Kaggle/HF)              │
+│ - Downloadable dataset cards                 │
+└──────────────────────────────────────────────┘
+</code></pre>
+
+<h3 id="2-dataset-inspection-flow">2. Dataset Inspection Flow</h3>
+
+<pre><code>┌─────────────────┐
+│ User clicks     │ "Inspect Dataset" or "Add to Collection"
+│ dataset card    │
+└────────┬────────┘
+         │
+         ▼
+┌──────────────────────────────────────────────┐
+│ datasets.py: /api/datasets/add-from-kaggle  │
+│                                              │
+│ 1. Check if Kaggle API configured            │
+│ 2. Download dataset to local storage         │
+│ 3. Find CSV files in download                │
+└──────┬───────────────────────────────────────┘
+         │
+         ▼
+┌──────────────────────────────────────────────┐
+│ Dataset Processing (pandas)                  │
+│                                              │
+│ 1. Load CSV (first 1000 rows for metadata)  │
+│ 2. Generate schema:                          │
+│    - Column names                            │
+│    - Data types (int, float, object)        │
+│    - Null counts                             │
+│    - Unique counts                           │
+│ 3. Extract sample data (20 rows)            │
+│ 4. Auto-detect target column:               │
+│    - Match keywords (price, label, etc.)    │
+│    - Check user query                        │
+│    - Fallback to last column                │
+└──────┬───────────────────────────────────────┘
+         │
+         ▼
+┌──────────────────────────────────────────────┐
+│ Save to MongoDB: datasets collection         │
+│                                              │
+│ {                                            │
+│   user_id, name, file_name,                  │
+│   row_count, column_count, file_size,        │
+│   schema: [...],                             │
+│   sample_data: [...],                        │
+│   target_column: "detected_column",          │
+│   csv_content: "..." (production mode),      │
+│   status: "ready"                            │
+│ }                                            │
+└──────┬───────────────────────────────────────┘
+         │
+         ▼
+┌──────────────────────────────────────────────┐
+│ Frontend: Dataset Card Updated               │
+│                                              │
+│ ✓ Shows schema preview                       │
+│ ✓ Shows target column                        │
+│ ✓ "Train Model" button enabled               │
+└──────────────────────────────────────────────┘
+</code></pre>
+
+<h3 id="3-training-flow-current-implementation">3. Training Flow (Current Implementation)</h3>
+
+<pre><code>┌─────────────────┐
+│ User initiates  │ Click "Train Model" button
+│ training        │ URL: /?chat=XXX&amp;dataset=YYY&amp;train=true
+└────────┬────────┘
+         │
+         ▼
+┌──────────────────────────────────────────────────────────┐
+│ Frontend: Chat.tsx (useEffect)                           │
+│                                                           │
+│ 1. Parse URL params:                                     │
+│    - chat_id                                             │
+│    - dataset_id                                          │
+│    - train=true flag                                     │
+│ 2. Call: handleStartTraining(dataset_id, chat_id)       │
+└────────┬─────────────────────────────────────────────────┘
+         │
+         ▼
+┌──────────────────────────────────────────────────────────┐
+│ Frontend: useTraining Hook                               │
+│                                                           │
+│ const startTraining = (datasetId, chatId, onProgress) =&gt; │
+│                                                           │
+│ 1. Establish SSE connection:                             │
+│    EventSource(`/api/automl/train/${datasetId}?          │
+│                 chat_id=${chatId}`)                      │
+│                                                           │
+│ 2. Listen for events:                                    │
+│    - onmessage: Parse JSON data                          │
+│    - Handle event types: status, progress, error,        │
+│      complete                                            │
+└────────┬─────────────────────────────────────────────────┘
+         │
+         │ HTTP GET (SSE Stream)
+         │
+         ▼
+┌──────────────────────────────────────────────────────────┐
+│ Backend: automl.py                                        │
+│ POST /api/automl/train/{dataset_id}                      │
+│                                                           │
+│ 1. Validate dataset exists                               │
+│ 2. Validate chat exists                                  │
+│ 3. Return StreamingResponse(event_generator())           │
+└────────┬─────────────────────────────────────────────────┘
+         │
+         ▼
+┌──────────────────────────────────────────────────────────┐
+│ async def event_generator(dataset_id, chat_id):          │
+│                                                           │
+│ PHASE 1: Load Dataset                                    │
+│ ├─ Check dataset metadata in MongoDB                     │
+│ ├─ Verify target_column is set                           │
+│ ├─ Priority 1: Load from csv_content (MongoDB)           │
+│ │  └─ Production-safe, works on ephemeral FS             │
+│ ├─ Priority 2: Load from file_path (Development)         │
+│ │  └─ Read CSV from disk                                 │
+│ └─ Send SSE: "📊 Dataset loaded: X rows, Y columns"      │
+│                                                           │
+│ PHASE 2: Initialize AutoML                               │
+│ ├─ Try: from autogluon.tabular import TabularPredictor  │
+│ ├─ If success: use_autogluon = True                      │
+│ └─ If ImportError: use_autogluon = False (simulation)    │
+│                                                           │
+│ PHASE 3: Data Preparation                                │
+│ ├─ Verify target column exists in DataFrame              │
+│ ├─ Get first 5 rows as sample                            │
+│ ├─ Clean NaN values for JSON serialization               │
+│ └─ Save sample to chat as message                        │
+│                                                           │
+│ PHASE 4A: Real AutoML Training (if available)            │
+│ ├─ Detect task type:                                     │
+│ │  └─ Classification: if dtype=object or nunique &lt; 20   │
+│ │  └─ Regression: otherwise                              │
+│ ├─ Create TabularPredictor:                              │
+│ │  └─ label=target_column                                │
+│ │  └─ path=backend/models/{dataset_id}                   │
+│ │  └─ problem_type='multiclass' or 'regression'          │
+│ │  └─ eval_metric='accuracy' or 'r2'                     │
+│ ├─ Train in executor (non-blocking):                     │
+│ │  └─ predictor.fit(train_data=df, time_limit=60,       │
+│ │                    presets='medium_quality')           │
+│ ├─ Get leaderboard and best model                        │
+│ └─ Calculate metrics:                                    │
+│    └─ Classification: accuracy, f1, precision, recall    │
+│    └─ Regression: r2_score, MAE, RMSE                    │
+│                                                           │
+│ PHASE 4B: Simulation Training (fallback)                 │
+│ ├─ Simulate 5 model training steps:                      │
+│ │  1. Random Forest (20% progress)                       │
+│ │  2. XGBoost (40% progress)                             │
+│ │  3. LightGBM (60% progress)                            │
+│ │  4. Neural Network (80% progress)                      │
+│ │  5. Ensemble (100% progress)                           │
+│ ├─ Each step: send SSE + save message to chat           │
+│ └─ Generate random metrics (75-95% accuracy)             │
+│                                                           │
+│ PHASE 5: Save Model to Database                          │
+│ ├─ Create model document:                                │
+│ │  {                                                      │
+│ │    user_id, name, base_model,                          │
+│ │    dataset_id, task_type,                              │
+│ │    metrics: {accuracy, f1, etc.},                      │
+│ │    model_path: "backend/models/...",                   │
+│ │    uses_real_model: true/false,                        │
+│ │    status: "ready"                                     │
+│ │  }                                                      │
+│ ├─ Insert into models collection                         │
+│ └─ Get model_id                                          │
+│                                                           │
+│ PHASE 6: Complete &amp; Notify                               │
+│ ├─ Format result message with metrics                    │
+│ ├─ Save final message to chat                            │
+│ └─ Send SSE complete event:                              │
+│    {                                                      │
+│      type: "complete",                                   │
+│      message: "Training Complete!",                      │
+│      model_id, best_model, metrics                       │
+│    }                                                      │
+└────────┬─────────────────────────────────────────────────┘
+         │
+         │ SSE Events Stream
+         │
+         ▼
+┌──────────────────────────────────────────────────────────┐
+│ Frontend: Event Handlers                                 │
+│                                                           │
+│ eventSource.onmessage = (event) =&gt; {                     │
+│   const data = JSON.parse(event.data);                   │
+│                                                           │
+│   switch(data.type) {                                    │
+│     case "status":                                       │
+│       └─ addMessage(data.message)                        │
+│     case "progress":                                     │
+│       └─ updateProgressBar(data.progress)                │
+│     case "error":                                        │
+│       └─ showError(data.message)                         │
+│     case "complete":                                     │
+│       ├─ eventSource.close()                             │
+│       ├─ addMessage(data.message)                        │
+│       ├─ updateURL to remove ?train=true                 │
+│       └─ showToast("Training Complete!")                 │
+│   }                                                       │
+│ }                                                         │
+└──────────────────────────────────────────────────────────┘
+</code></pre>
+
+<hr />
+
+<h2 id="code-implementation">💻 Code Implementation</h2>
+
+<h3 id="file-structure">File Structure</h3>
+
+<pre><code>backend/app/
+├── routers/
+│   ├── automl.py           ⭐ Main training endpoint
+│   ├── messages.py         📨 Chat &amp; query analysis
+│   ├── datasets.py         📦 Dataset inspection
+│   └── training_jobs.py    🔄 Background job tracking
+│
+├── services/
+│   ├── ml_orchestrator.py  🤖 Model recommendations
+│   ├── gemini_service.py   ✨ AI query analysis
+│   ├── dataset_download_service.py  📥 Multi-source search
+│   └── huggingface_service.py       🤗 HF integration
+│
+└── models/
+    └── mongodb_models.py   🗄️ Database schemas
+
+frontend/client/src/
+├── pages/
+│   └── Chat.tsx            💬 Main chat interface
+│
+├── hooks/
+│   ├── useChat.ts          📡 Chat state management
+│   └── useTraining.ts      🎯 Training SSE handler
+│
+└── components/
+    ├── KaggleDatasetCard.tsx      📊 Kaggle dataset UI
+    ├── HuggingFaceDatasetCard.tsx 🤗 HF dataset UI
+    └── DownloadableDatasetCard.tsx 📦 Unified dataset card
+</code></pre>
+
+<h3 id="key-code-sections">Key Code Sections</h3>
+
+<h4 id="1-training-endpoint-backendapproutersautomlpy">1. Training Endpoint (<code>backend/app/routers/automl.py</code>)</h4>
+
+<div class="codehilite">
+<pre><span></span><code><span class="c1"># Line 407-451: Main training endpoint</span>
+<span class="nd">@router</span><span class="o">.</span><span class="n">post</span><span class="p">(</span><span class="s2">&quot;/train/</span><span class="si">{dataset_id}</span><span class="s2">&quot;</span><span class="p">)</span>
+<span class="k">async</span> <span class="k">def</span> <span class="nf">train_model</span><span class="p">(</span>
+    <span class="n">dataset_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">chat_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span>
+    <span class="n">current_user</span><span class="p">:</span> <span class="n">User</span> <span class="o">=</span> <span class="n">Depends</span><span class="p">(</span><span class="n">get_current_user</span><span class="p">)</span>
+<span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;Start AutoML training with SSE progress updates&quot;&quot;&quot;</span>
+
+    <span class="c1"># Validate dataset and chat</span>
+    <span class="c1"># Return StreamingResponse with event_generator()</span>
+
+    <span class="k">return</span> <span class="n">StreamingResponse</span><span class="p">(</span>
+        <span class="n">event_generator</span><span class="p">(</span><span class="n">dataset_id</span><span class="p">,</span> <span class="n">chat_id</span><span class="p">),</span>
+        <span class="n">media_type</span><span class="o">=</span><span class="s2">&quot;text/event-stream&quot;</span><span class="p">,</span>
+        <span class="n">headers</span><span class="o">=</span><span class="p">{</span>
+            <span class="s2">&quot;Cache-Control&quot;</span><span class="p">:</span> <span class="s2">&quot;no-cache&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;Connection&quot;</span><span class="p">:</span> <span class="s2">&quot;keep-alive&quot;</span><span class="p">,</span>
+            <span class="s2">&quot;X-Accel-Buffering&quot;</span><span class="p">:</span> <span class="s2">&quot;no&quot;</span>
+        <span class="p">}</span>
+    <span class="p">)</span>
+</code></pre>
+</div>
+
+<h4 id="2-event-generator-backendapproutersautomlpy">2. Event Generator (<code>backend/app/routers/automl.py</code>)</h4>
+
+<div class="codehilite">
+<pre><span></span><code><span class="c1"># Line 17-404: SSE event stream generator</span>
+<span class="k">async</span> <span class="k">def</span> <span class="nf">event_generator</span><span class="p">(</span><span class="n">dataset_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">chat_id</span><span class="p">:</span> <span class="nb">str</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">&quot;&quot;&quot;</span>
+<span class="sd">    Yields SSE events:</span>
+<span class="sd">    - data: {&quot;type&quot;: &quot;status&quot;, &quot;message&quot;: &quot;Loading...&quot;}</span>
+<span class="sd">    - data: {&quot;type&quot;: &quot;progress&quot;, &quot;message&quot;: &quot;Training...&quot;, &quot;progress&quot;: 50}</span>
+<span class="sd">    - data: {&quot;type&quot;: &quot;complete&quot;, &quot;model_id&quot;: &quot;...&quot;, &quot;metrics&quot;: {...}}</span>
+<span class="sd">    &quot;&quot;&quot;</span>
+
+    <span class="c1"># Phase 1: Load dataset from MongoDB or filesystem</span>
+    <span class="c1"># Phase 2: Initialize AutoGluon (or fallback to simulation)</span>
+    <span class="c1"># Phase 3: Prepare data and show sample</span>
+    <span class="c1"># Phase 4: Train model (real or simulated)</span>
+    <span class="c1"># Phase 5: Save model to database</span>
+    <span class="c1"># Phase 6: Send completion event</span>
+</code></pre>
+</div>
+
+<h4 id="3-frontend-training-hook-frontendclientsrchooksusetrainingts">3. Frontend Training Hook (<code>frontend/client/src/hooks/useTraining.ts</code>)</h4>
+
+<div class="codehilite">
+<pre><span></span><code><span class="k">export</span><span class="w"> </span><span class="kd">const</span><span class="w"> </span><span class="nx">useTraining</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="kd">const</span><span class="w"> </span><span class="p">[</span><span class="nx">isTraining</span><span class="p">,</span><span class="w"> </span><span class="nx">setIsTraining</span><span class="p">]</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">useState</span><span class="p">(</span><span class="kc">false</span><span class="p">);</span>
+
+<span class="w">  </span><span class="kd">const</span><span class="w"> </span><span class="nx">startTraining</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span>
+<span class="w">    </span><span class="nx">datasetId</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">,</span>
+<span class="w">    </span><span class="nx">chatId</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">,</span>
+<span class="w">    </span><span class="nx">onProgress</span><span class="o">:</span><span class="w"> </span><span class="p">(</span><span class="nx">data</span><span class="o">:</span><span class="w"> </span><span class="kt">any</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="ow">void</span>
+<span class="w">  </span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nx">setIsTraining</span><span class="p">(</span><span class="kc">true</span><span class="p">);</span>
+
+<span class="w">    </span><span class="c1">// Create SSE connection</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">eventSource</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="ow">new</span><span class="w"> </span><span class="nx">EventSource</span><span class="p">(</span>
+<span class="w">      </span><span class="sb">`</span><span class="si">${</span><span class="nx">API_URL</span><span class="si">}</span><span class="sb">/api/automl/train/</span><span class="si">${</span><span class="nx">datasetId</span><span class="si">}</span><span class="sb">?chat_id=</span><span class="si">${</span><span class="nx">chatId</span><span class="si">}</span><span class="sb">`</span>
+<span class="w">    </span><span class="p">);</span>
+
+<span class="w">    </span><span class="c1">// Handle events</span>
+<span class="w">    </span><span class="nx">eventSource</span><span class="p">.</span><span class="nx">onmessage</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="nx">event</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="kd">const</span><span class="w"> </span><span class="nx">data</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">JSON</span><span class="p">.</span><span class="nx">parse</span><span class="p">(</span><span class="nx">event</span><span class="p">.</span><span class="nx">data</span><span class="p">);</span>
+<span class="w">      </span><span class="nx">onProgress</span><span class="p">(</span><span class="nx">data</span><span class="p">);</span>
+
+<span class="w">      </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">data</span><span class="p">.</span><span class="kr">type</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="s1">&#39;complete&#39;</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">data</span><span class="p">.</span><span class="kr">type</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="s1">&#39;error&#39;</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">        </span><span class="nx">eventSource</span><span class="p">.</span><span class="nx">close</span><span class="p">();</span>
+<span class="w">        </span><span class="nx">setIsTraining</span><span class="p">(</span><span class="kc">false</span><span class="p">);</span>
+<span class="w">      </span><span class="p">}</span>
+<span class="w">    </span><span class="p">};</span>
+
+<span class="w">    </span><span class="k">return</span><span class="w"> </span><span class="nx">eventSource</span><span class="p">;</span>
+<span class="w">  </span><span class="p">};</span>
+
+<span class="w">  </span><span class="k">return</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">isTraining</span><span class="p">,</span><span class="w"> </span><span class="nx">startTraining</span><span class="w"> </span><span class="p">};</span>
+<span class="p">};</span>
+</code></pre>
+</div>
+
+<h4 id="4-chat-integration-frontendclientsrcpageschattsx">4. Chat Integration (<code>frontend/client/src/pages/Chat.tsx</code>)</h4>
+
+<div class="codehilite">
+<pre><span></span><code><span class="c1">// Line 29-76: Initialize chat and handle training</span>
+<span class="nx">useEffect</span><span class="p">(()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="kd">const</span><span class="w"> </span><span class="nx">initializeChat</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="k">async</span><span class="w"> </span><span class="p">()</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">urlParams</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="ow">new</span><span class="w"> </span><span class="nx">URLSearchParams</span><span class="p">(</span><span class="nb">window</span><span class="p">.</span><span class="nx">location</span><span class="p">.</span><span class="nx">search</span><span class="p">);</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">existingChatId</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">urlParams</span><span class="p">.</span><span class="nx">get</span><span class="p">(</span><span class="s1">&#39;chat&#39;</span><span class="p">);</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">datasetId</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">urlParams</span><span class="p">.</span><span class="nx">get</span><span class="p">(</span><span class="s1">&#39;dataset&#39;</span><span class="p">);</span>
+<span class="w">    </span><span class="kd">const</span><span class="w"> </span><span class="nx">shouldTrain</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nx">urlParams</span><span class="p">.</span><span class="nx">get</span><span class="p">(</span><span class="s1">&#39;train&#39;</span><span class="p">)</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="s1">&#39;true&#39;</span><span class="p">;</span>
+
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">shouldTrain</span><span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nx">datasetId</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nx">handleStartTraining</span><span class="p">(</span><span class="nx">datasetId</span><span class="p">,</span><span class="w"> </span><span class="nx">existingChatId</span><span class="p">);</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">};</span>
+
+<span class="w">  </span><span class="nx">initializeChat</span><span class="p">();</span>
+<span class="p">},</span><span class="w"> </span><span class="p">[]);</span>
+
+<span class="c1">// Line 79-101: Training handler</span>
+<span class="kd">const</span><span class="w"> </span><span class="nx">handleStartTraining</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="nx">datasetId</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">,</span><span class="w"> </span><span class="nx">currentChatId</span><span class="o">:</span><span class="w"> </span><span class="kt">string</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="nx">startTraining</span><span class="p">(</span><span class="nx">datasetId</span><span class="p">,</span><span class="w"> </span><span class="nx">currentChatId</span><span class="p">,</span><span class="w"> </span><span class="p">(</span><span class="nx">data</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">data</span><span class="p">.</span><span class="kr">type</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="s2">&quot;status&quot;</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nx">data</span><span class="p">.</span><span class="kr">type</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="s2">&quot;progress&quot;</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nx">addMessage</span><span class="p">({</span>
+<span class="w">        </span><span class="nx">role</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;assistant&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">content</span><span class="o">:</span><span class="w"> </span><span class="kt">data.message</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">timestamp</span><span class="o">:</span><span class="w"> </span><span class="kt">new</span><span class="w"> </span><span class="nb">Date</span><span class="p">()</span>
+<span class="w">      </span><span class="p">});</span>
+<span class="w">    </span><span class="p">}</span><span class="w"> </span><span class="k">else</span><span class="w"> </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">data</span><span class="p">.</span><span class="kr">type</span><span class="w"> </span><span class="o">===</span><span class="w"> </span><span class="s2">&quot;complete&quot;</span><span class="p">)</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nx">addMessage</span><span class="p">({</span>
+<span class="w">        </span><span class="nx">role</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;assistant&quot;</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">content</span><span class="o">:</span><span class="w"> </span><span class="kt">data.message</span><span class="p">,</span>
+<span class="w">        </span><span class="nx">timestamp</span><span class="o">:</span><span class="w"> </span><span class="kt">new</span><span class="w"> </span><span class="nb">Date</span><span class="p">(),</span>
+<span class="w">        </span><span class="nx">metadata</span><span class="o">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">          </span><span class="nx">model_id</span><span class="o">:</span><span class="w"> </span><span class="kt">data.model_id</span><span class="p">,</span>
+<span class="w">          </span><span class="nx">metrics</span><span class="o">:</span><span class="w"> </span><span class="kt">data.metrics</span>
+<span class="w">        </span><span class="p">}</span>
+<span class="w">      </span><span class="p">});</span>
+<span class="w">    </span><span class="p">}</span>
+<span class="w">  </span><span class="p">});</span>
+<span class="p">};</span>
+</code></pre>
+</div>
+
+<hr />
+
+<h2 id="integration-points">🔗 Integration Points</h2>
+
+<h3 id="1-dataset-discovery-training">1. Dataset Discovery → Training</h3>
+
+<pre><code>messages.py (line 159-251)
+├─ Detects: ML task keywords (classify, train, predict)
+├─ Searches datasets via dataset_download_service
+├─ Returns metadata with downloadable_datasets
+└─ Frontend shows "Add to Collection" button
+    │
+    ▼
+datasets.py (line 487-678)
+├─ Downloads dataset from Kaggle/HuggingFace
+├─ Inspects and generates schema
+├─ Auto-detects target column
+└─ Saves to MongoDB with status="ready"
+    │
+    ▼
+Chat.tsx (line 270-285)
+└─ Shows "Start Fine-tuning" button for ready datasets
+    │
+    ▼
+automl.py (line 407)
+└─ Starts training via SSE
+</code></pre>
+
+<h3 id="2-model-recommendation-training">2. Model Recommendation → Training</h3>
+
+<pre><code>ml_orchestrator.py (line 28-102)
+├─ recommend_models(task_description, dataset_id)
+├─ Searches HuggingFace models
+├─ Ranks by downloads/likes
+└─ Returns top 3 with confidence scores
+    │
+    ▼
+messages.py (line 255-336)
+├─ Calls ml_orchestrator when ML task detected
+├─ Formats recommendations for user
+└─ Shows cost/time estimates
+    │
+    ▼
+automl.py
+└─ Uses recommended model for training
+</code></pre>
+
+<h3 id="3-training-deployment">3. Training → Deployment</h3>
+
+<pre><code>automl.py (line 354-373)
+├─ Training completes successfully
+├─ Saves to models collection:
+│  {
+│    model_id, base_model, metrics,
+│    model_path, task_type, status="ready"
+│  }
+└─ Returns model_id to frontend
+    │
+    ▼
+training_jobs.py (line 481-540)
+└─ deploy_trained_model(job_id)
+    ├─ Creates deployment record
+    ├─ Generates API endpoint
+    └─ Returns: /api/deployed/{id}/predict
+</code></pre>
+
+<hr />
+
+<h2 id="data-flow">📊 Data Flow</h2>
+
+<h3 id="mongodb-collections">MongoDB Collections</h3>
+
+<pre><code>┌─────────────────────────────────────────────────────────────────┐
+│ DATASETS Collection                                             │
+├─────────────────────────────────────────────────────────────────┤
+│ {                                                               │
+│   _id: ObjectId,                                                │
+│   user_id: ObjectId,                                            │
+│   name: "House Prices Dataset",                                 │
+│   source: "kaggle" | "huggingface" | "upload",                 │
+│   kaggle_ref: "username/dataset-name",                          │
+│   file_name: "housing.csv",                                     │
+│   row_count: 20640,                                             │
+│   column_count: 10,                                             │
+│   file_size: 1234567,                                           │
+│   status: "ready" | "pending" | "error",                       │
+│   schema: [                                                     │
+│     {name: "longitude", dtype: "float64", null_count: 0},       │
+│     {name: "latitude", dtype: "float64", null_count: 0},        │
+│     {name: "price", dtype: "float64", null_count: 0}            │
+│   ],                                                            │
+│   sample_data: [{longitude: -122.23, latitude: 37.88, ...}],   │
+│   target_column: "price",                                       │
+│   csv_content: "longitude,latitude,price\n..." (production),    │
+│   download_path: "./data/kaggle/..." (development),             │
+│   uploaded_at: ISODate                                          │
+│ }                                                               │
+└─────────────────────────────────────────────────────────────────┘
+                            │
+                            │ Used by
+                            ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ MODELS Collection                                               │
+├─────────────────────────────────────────────────────────────────┤
+│ {                                                               │
+│   _id: ObjectId,                                                │
+│   user_id: ObjectId,                                            │
+│   name: "House Prices - WeightedEnsemble",                      │
+│   base_model: "WeightedEnsemble_L2",                            │
+│   dataset_id: ObjectId (references datasets),                   │
+│   task_type: "regression",                                      │
+│   status: "ready",                                              │
+│   metrics: {                                                    │
+│     r2_score: 0.8234,                                           │
+│     mae: 45234.56,                                              │
+│     rmse: 62345.78                                              │
+│   },                                                            │
+│   model_path: "backend/models/65f3a.../",                       │
+│   uses_real_model: true,                                        │
+│   created_at: ISODate                                           │
+│ }                                                               │
+└─────────────────────────────────────────────────────────────────┘
+                            │
+                            │ Referenced in
+                            ▼
+┌─────────────────────────────────────────────────────────────────┐
+│ MESSAGES Collection                                             │
+├─────────────────────────────────────────────────────────────────┤
+│ {                                                               │
+│   _id: ObjectId,                                                │
+│   chat_id: ObjectId,                                            │
+│   role: "assistant",                                            │
+│   content: "Training Complete! Accuracy: 82.34%",               │
+│   query_type: "ml_agent",                                       │
+│   metadata: {                                                   │
+│     model_id: ObjectId,                                         │
+│     metrics: {...},                                             │
+│     best_model: "WeightedEnsemble_L2"                           │
+│   },                                                            │
+│   timestamp: ISODate                                            │
+│ }                                                               │
+└─────────────────────────────────────────────────────────────────┘
+</code></pre>
+
+<hr />
+
+<h2 id="api-endpoints">🌐 API Endpoints</h2>
+
+<h3 id="training-endpoints">Training Endpoints</h3>
+
+<pre><code>POST /api/automl/train/{dataset_id}
+├─ Query Params: chat_id (required)
+├─ Auth: Bearer token required
+├─ Response: text/event-stream (SSE)
+└─ Events:
+   ├─ {type: "status", message: "Loading dataset..."}
+   ├─ {type: "progress", message: "Training 1/5", progress: 20}
+   └─ {type: "complete", model_id: "...", metrics: {...}}
+
+GET /api/datasets/{dataset_id}
+├─ Returns: Dataset details with schema and sample data
+└─ Used to verify target column before training
+
+POST /api/datasets/inspect
+├─ Body: {dataset_id, user_query}
+├─ Downloads dataset if not present
+├─ Generates schema and detects target column
+└─ Updates dataset status to "ready"
+
+POST /api/ml/models/recommend
+├─ Body: {task_type, dataset_id, constraints}
+├─ Returns: Top 3 model recommendations with scores
+└─ Used before training for model selection
+</code></pre>
+
+<h3 id="dataset-discovery-endpoints">Dataset Discovery Endpoints</h3>
+
+<pre><code>POST /api/messages/chat
+├─ Body: {chat_id, content, role: "user"}
+├─ Analyzes query with Gemini
+├─ Searches datasets if needed
+└─ Returns: AI response with dataset suggestions
+
+POST /api/messages/agent
+├─ Same as /chat but uses advanced agent mode
+├─ Direct API search for datasets
+└─ Better for explicit dataset requests
+
+POST /api/datasets/search-all
+├─ Body: {query, optimize_query: true}
+├─ Searches Kaggle + HuggingFace
+├─ Ranks by semantic relevance
+└─ Returns: {datasets: [...], total_found, kaggle_count, hf_count}
+</code></pre>
+
+<hr />
+
+<h2 id="training-scenarios">🎯 Training Scenarios</h2>
+
+<h3 id="scenario-1-real-automl-training">Scenario 1: Real AutoML Training</h3>
+
+<pre><code>Prerequisites:
+✓ AutoGluon installed (pip install autogluon)
+✓ Dataset with target column selected
+✓ Sufficient disk space for model cache
+
+Flow:
+1. User clicks "Train Model"
+2. Backend loads dataset from MongoDB
+3. Creates TabularPredictor with AutoGluon
+4. Trains for 60 seconds (quick mode)
+5. Evaluates models and selects best one
+6. Saves model to: backend/models/{dataset_id}/
+7. Returns real metrics (accuracy, f1, etc.)
+
+Result:
+✓ Deployable model saved to disk
+✓ Real predictions available via API
+✓ Leaderboard with all models tried
+</code></pre>
+
+<h3 id="scenario-2-simulation-mode-training">Scenario 2: Simulation Mode Training</h3>
+
+<pre><code>Prerequisites:
+✗ AutoGluon not installed
+✓ Dataset with target column selected
+
+Flow:
+1. User clicks "Train Model"
+2. Backend detects AutoGluon unavailable
+3. Simulates 5 training steps (2 seconds each)
+4. Generates realistic random metrics
+5. No model saved to disk
+6. Returns simulated metrics
+
+Result:
+✓ Demo-ready for UI/UX testing
+✓ Fast completion (10 seconds)
+✗ No real model for predictions
+</code></pre>
+
+<h3 id="scenario-3-production-training-ephemeral-fs">Scenario 3: Production Training (Ephemeral FS)</h3>
+
+<pre><code>Prerequisites:
+✓ Production environment (Render, Heroku, etc.)
+✓ CSV content stored in MongoDB
+✓ AutoGluon installed
+
+Flow:
+1. Backend loads csv_content from MongoDB
+2. Creates DataFrame from in-memory string
+3. Trains model (model_path on ephemeral disk)
+4. Saves model metadata to MongoDB
+5. Model files lost on container restart
+
+Note: For persistent models in production:
+- Use S3/GCS to store model files
+- Or use model-as-a-service (HuggingFace Inference API)
+</code></pre>
+
+<hr />
+
+<h2 id="debugging-monitoring">🔍 Debugging &amp; Monitoring</h2>
+
+<h3 id="log-points">Log Points</h3>
+
+<div class="codehilite">
+<pre><span></span><code><span class="c1"># automl.py - Key log points</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[AUTOML] Loading dataset: </span><span class="si">{</span><span class="n">dataset_id</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>          <span class="c1"># Line 26</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[AUTOML] Dataset loaded: </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">df</span><span class="p">)</span><span class="si">}</span><span class="s2"> rows&quot;</span><span class="p">)</span>         <span class="c1"># Line 102</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[AUTOML] AutoML loaded successfully&quot;</span><span class="p">)</span>             <span class="c1"># Line 129</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[AUTOML] Using simulation mode&quot;</span><span class="p">)</span>                  <span class="c1"># Line 132</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;[AUTOML] Training complete: </span><span class="si">{</span><span class="n">best_model</span><span class="si">}</span><span class="s2">&quot;</span><span class="p">)</span>        <span class="c1"># Line 233</span>
+</code></pre>
+</div>
+
+<h3 id="sse-event-tracking">SSE Event Tracking</h3>
+
+<div class="codehilite">
+<pre><span></span><code><span class="c1">// Frontend - Track all events</span>
+<span class="nx">eventSource</span><span class="p">.</span><span class="nx">onmessage</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">(</span><span class="nx">event</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="s1">&#39;[SSE]&#39;</span><span class="p">,</span><span class="w"> </span><span class="nx">event</span><span class="p">.</span><span class="nx">data</span><span class="p">);</span>
+
+<span class="w">  </span><span class="kd">const</span><span class="w"> </span><span class="nx">data</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="nb">JSON</span><span class="p">.</span><span class="nx">parse</span><span class="p">(</span><span class="nx">event</span><span class="p">.</span><span class="nx">data</span><span class="p">);</span>
+<span class="w">  </span><span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="s1">&#39;[SSE Type]&#39;</span><span class="p">,</span><span class="w"> </span><span class="nx">data</span><span class="p">.</span><span class="nx">type</span><span class="p">);</span>
+<span class="w">  </span><span class="nx">console</span><span class="p">.</span><span class="nx">log</span><span class="p">(</span><span class="s1">&#39;[SSE Message]&#39;</span><span class="p">,</span><span class="w"> </span><span class="nx">data</span><span class="p">.</span><span class="nx">message</span><span class="p">);</span>
+<span class="p">};</span>
+</code></pre>
+</div>
+
+<h3 id="mongodb-queries">MongoDB Queries</h3>
+
+<div class="codehilite">
+<pre><span></span><code><span class="c1">// Check dataset status</span>
+<span class="nx">db</span><span class="p">.</span><span class="nx">datasets</span><span class="p">.</span><span class="nx">findOne</span><span class="p">({</span><span class="nx">_id</span><span class="o">:</span><span class="w"> </span><span class="nx">ObjectId</span><span class="p">(</span><span class="s2">&quot;...&quot;</span><span class="p">)})</span>
+
+<span class="c1">// Check trained models</span>
+<span class="nx">db</span><span class="p">.</span><span class="nx">models</span><span class="p">.</span><span class="nx">find</span><span class="p">({</span><span class="nx">user_id</span><span class="o">:</span><span class="w"> </span><span class="nx">ObjectId</span><span class="p">(</span><span class="s2">&quot;...&quot;</span><span class="p">)}).</span><span class="nx">sort</span><span class="p">({</span><span class="nx">created_at</span><span class="o">:</span><span class="w"> </span><span class="o">-</span><span class="mf">1</span><span class="p">})</span>
+
+<span class="c1">// Check training messages</span>
+<span class="nx">db</span><span class="p">.</span><span class="nx">messages</span><span class="p">.</span><span class="nx">find</span><span class="p">({</span>
+<span class="w">  </span><span class="nx">chat_id</span><span class="o">:</span><span class="w"> </span><span class="nx">ObjectId</span><span class="p">(</span><span class="s2">&quot;...&quot;</span><span class="p">),</span>
+<span class="w">  </span><span class="nx">content</span><span class="o">:</span><span class="w"> </span><span class="p">{</span><span class="nx">$regex</span><span class="o">:</span><span class="w"> </span><span class="s2">&quot;Training&quot;</span><span class="p">}</span>
+<span class="p">}).</span><span class="nx">sort</span><span class="p">({</span><span class="nx">timestamp</span><span class="o">:</span><span class="w"> </span><span class="o">-</span><span class="mf">1</span><span class="p">})</span>
+</code></pre>
+</div>
+
+<hr />
+
+<h2 id="performance-considerations">📈 Performance Considerations</h2>
+
+<h3 id="training-time">Training Time</h3>
+
+<table>
+<thead>
+<tr>
+  <th>Dataset Size</th>
+  <th>Model Type</th>
+  <th>Training Time</th>
+  <th>Cost (GPU)</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td>&lt; 1K rows</td>
+  <td>AutoML Quick</td>
+  <td>1-2 min</td>
+  <td>$0.01</td>
+</tr>
+<tr>
+  <td>1K-10K rows</td>
+  <td>AutoML Medium</td>
+  <td>5-10 min</td>
+  <td>$0.08</td>
+</tr>
+<tr>
+  <td>10K-100K rows</td>
+  <td>AutoML Full</td>
+  <td>30-60 min</td>
+  <td>$0.50</td>
+</tr>
+<tr>
+  <td>&gt; 100K rows</td>
+  <td>Distributed</td>
+  <td>2-4 hours</td>
+  <td>$4.00</td>
+</tr>
+</tbody>
+</table>
+
+<h3 id="optimization-tips">Optimization Tips</h3>
+
+<ol>
+<li><p><strong>Dataset Loading</strong></p>
+
+<ul>
+<li>Use <code>nrows=1000</code> for inspection</li>
+<li>Store csv_content in MongoDB for production</li>
+<li>Use encoding fallback (utf-8 → latin-1 → ignore)</li>
+</ul></li>
+<li><p><strong>Training</strong></p>
+
+<ul>
+<li>Set <code>time_limit=60</code> for quick demos</li>
+<li>Use <code>presets='medium_quality'</code> for balance</li>
+<li>Run in executor to avoid blocking event loop</li>
+</ul></li>
+<li><p><strong>Memory Management</strong></p>
+
+<ul>
+<li>Delete DataFrames after use</li>
+<li>Call <code>gc.collect()</code> after training</li>
+<li>Monitor with <code>log_memory_usage()</code></li>
+</ul></li>
+</ol>
+
+<hr />
+
+<h2 id="testing-checklist">✅ Testing Checklist</h2>
+
+<h3 id="pre-training-tests">Pre-Training Tests</h3>
+
+<ul>
+<li>[ ] Dataset exists in MongoDB</li>
+<li>[ ] Dataset status is "ready"</li>
+<li>[ ] Target column is set</li>
+<li>[ ] CSV content or download_path is available</li>
+<li>[ ] User has permission to access dataset</li>
+</ul>
+
+<h3 id="during-training-tests">During Training Tests</h3>
+
+<ul>
+<li>[ ] SSE connection established</li>
+<li>[ ] Progress events received every 1-2 seconds</li>
+<li>[ ] Messages saved to chat collection</li>
+<li>[ ] Memory usage stays under limit</li>
+<li>[ ] No event loop blocking (health check responds)</li>
+</ul>
+
+<h3 id="post-training-tests">Post-Training Tests</h3>
+
+<ul>
+<li>[ ] Model saved to models collection</li>
+<li>[ ] model_id returned to frontend</li>
+<li>[ ] Metrics are realistic (not NaN or Infinity)</li>
+<li>[ ] Chat shows completion message</li>
+<li>[ ] SSE connection closed properly</li>
+</ul>
+
+<hr />
+
+<h2 id="next-steps">🚀 Next Steps</h2>
+
+<h3 id="immediate-improvements">Immediate Improvements</h3>
+
+<ol>
+<li>Add model deployment API</li>
+<li>Implement model predictions endpoint</li>
+<li>Add training job queue for multiple users</li>
+<li>Store models in S3/GCS for production</li>
+</ol>
+
+<h3 id="future-enhancements">Future Enhancements</h3>
+
+<ol>
+<li>Support for image/audio datasets</li>
+<li>Distributed training for large datasets</li>
+<li>Hyperparameter tuning with Optuna</li>
+<li>Model comparison dashboard</li>
+<li>A/B testing for deployed models</li>
+</ol>
+
+<hr />
+
+<h2 id="support-resources">📞 Support &amp; Resources</h2>
+
+<ul>
+<li><strong>GitHub:</strong> https://github.com/harshalingle123/smart-ml-assistant</li>
+<li><strong>AutoGluon Docs:</strong> https://auto.gluon.ai/stable/tutorials/</li>
+<li><strong>SSE Guide:</strong> https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events</li>
+</ul>
+
+<hr />
+
+<p><strong>Document Version:</strong> 1.0
+<strong>Last Updated:</strong> December 2024
+<strong>Status:</strong> Production-Ready ✅</p>
+
+<div class=no-print style="text-align:center;margin-top:50px;color:#666;">
+<small>End of Document - Generated from TRAINING_IMPLEMENTATION_GUIDE.md</small>
+</div>
+</body>
+</html>
