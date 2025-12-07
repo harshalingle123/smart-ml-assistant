@@ -48,3 +48,4 @@ class LoggingMiddleware(BaseHTTPMiddleware):
                 f"Duration: {duration:.3f}s - Client: {client_host}"
             )
             raise
+        

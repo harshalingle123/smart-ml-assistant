@@ -149,6 +149,23 @@ async def startup_db_client():
         logger.info("Starting application...")
         logger.info(f"   Environment: {settings.ENVIRONMENT}")
         logger.info(f"   Upload limit: {settings.MAX_UPLOAD_SIZE_MB} MB")
+
+        # Validate Azure Blob Storage configuration
+        if settings.AZURE_STORAGE_ENABLED:
+            from app.utils.azure_storage import azure_storage_service
+
+            if azure_storage_service.is_configured:
+                logger.info("[AZURE] Azure Blob Storage is configured and ready")
+                logger.info(f"[AZURE] Datasets container: {settings.AZURE_DATASETS_CONTAINER}")
+                logger.info(f"[AZURE] Models container: {settings.AZURE_MODELS_CONTAINER}")
+            else:
+                logger.warning("[AZURE] ⚠️  Azure Blob Storage is NOT configured!")
+                logger.warning("[AZURE] Dataset upload/download and model training will NOT work")
+                logger.warning("[AZURE] Please configure AZURE_* environment variables")
+        else:
+            logger.warning("[AZURE] Azure Blob Storage is DISABLED")
+            logger.warning("[AZURE] Dataset and model operations will fail")
+
         await mongodb.connect()
         logger.info("Application startup complete")
     except Exception as e:

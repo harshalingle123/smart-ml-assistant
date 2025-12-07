@@ -298,11 +298,7 @@ async def upload_dataset(
             target_column = "test_col_1"
             print(f"[UPLOAD] Using hardcoded test data: {len(schema_cleaned)} cols, {len(sample_rows_cleaned)} rows, target={target_column}")
 
-        # Legacy preview_data for backward compatibility
-        preview_data = {
-            "headers": headers,
-            "rows": data_rows[:10]
-        }
+        # Removed: legacy preview_data (use sample_data instead)
 
         # DEBUG: Log what we're passing to Dataset constructor
         print(f"\n[UPLOAD DEBUG] BEFORE Dataset constructor:")
@@ -318,10 +314,8 @@ async def upload_dataset(
         # This matches the format that works for Kaggle datasets
         print(f"\n[UPLOAD] Creating dataset document in MongoDB...")
 
-        # In production, store CSV content for ephemeral filesystem
-        from app.core.config import settings
-        csv_content_to_store = decoded if settings.ENVIRONMENT == "production" else None
 
+        # Create dataset with ONLY metadata - no schema/sample_data in MongoDB
         new_dataset = Dataset(
             user_id=current_user.id,
             name=file.filename or "Untitled Dataset",
@@ -330,85 +324,61 @@ async def upload_dataset(
             column_count=len(headers),
             file_size=file_size,
             status="ready",
-            preview_data=preview_data,
             uploaded_at=datetime.utcnow(),
             source="upload",
-            kaggle_ref=None,
-            huggingface_dataset_id=None,
-            huggingface_url=None,
-            download_path=None,
-            schema=schema_cleaned if schema_cleaned else [],
-            sample_data=sample_rows_cleaned if sample_rows_cleaned else [],
             target_column=target_column if target_column else None,
         )
 
-        if csv_content_to_store:
-            print(f"[UPLOAD] Storing CSV content in MongoDB: {len(csv_content_to_store)} bytes (production mode)")
-
         dataset_dict = new_dataset.model_dump(by_alias=False, exclude={'id'})
 
-        # Store CSV content if in production mode
-        if csv_content_to_store:
-            dataset_dict["csv_content"] = csv_content_to_store
-
-        # DEBUG: Log what we're saving to MongoDB
-        print(f"\n[UPLOAD DEBUG] MongoDB document structure:")
-        print(f"  - user_id type: {type(dataset_dict['user_id'])}")
-        print(f"  - user_id value: {dataset_dict['user_id']}")
-        print(f"  - name: {dataset_dict['name']}")
-        print(f"  - row_count: {dataset_dict['row_count']}")
-        print(f"  - column_count: {dataset_dict['column_count']}")
-        print(f"  - file_size: {dataset_dict['file_size']}")
-        print(f"  - status: {dataset_dict['status']}")
-        print(f"  - schema: {len(dataset_dict.get('schema', []))} columns")
-        print(f"  - sample_data: {len(dataset_dict.get('sample_data', []))} rows")
-        print(f"  - target_column: {dataset_dict['target_column']}")
-
+        # Insert to MongoDB (metadata only - NO schema/sample_data)
+        print(f"[UPLOAD] Inserting dataset metadata to MongoDB...")
         result = await mongodb.database["datasets"].insert_one(dataset_dict)
         dataset_id = str(result.inserted_id)
-        dataset_dict["_id"] = result.inserted_id
         print(f"[UPLOAD] ✓ Dataset document created with ID: {dataset_id}")
 
-        # DEBUG: Verify what was actually saved to MongoDB
-        saved_doc = await mongodb.database["datasets"].find_one({"_id": result.inserted_id})
-        print(f"\n[UPLOAD DEBUG] VERIFICATION - Document in MongoDB:")
-        print(f"  - '_id' type: {type(saved_doc.get('_id'))}")
-        print(f"  - 'user_id' type: {type(saved_doc.get('user_id'))}")
-        print(f"  - 'schema' field exists: {'schema' in saved_doc}")
-        print(f"  - 'schema' value: {type(saved_doc.get('schema'))}")
-        print(f"  - 'schema' length: {len(saved_doc.get('schema', [])) if saved_doc.get('schema') else 0}")
-        print(f"  - 'sample_data' field exists: {'sample_data' in saved_doc}")
-        print(f"  - 'sample_data' value: {type(saved_doc.get('sample_data'))}")
-        print(f"  - 'sample_data' length: {len(saved_doc.get('sample_data', [])) if saved_doc.get('sample_data') else 0}")
-        print(f"  - 'target_column' field exists: {'target_column' in saved_doc}")
-        print(f"  - 'target_column' value: {saved_doc.get('target_column')}")
-        if saved_doc.get('schema') is None:
-            print(f"\n[UPLOAD ERROR] ❌ SCHEMA IS NULL IN MONGODB!")
-        if saved_doc.get('sample_data') is None:
-            print(f"[UPLOAD ERROR] ❌ SAMPLE_DATA IS NULL IN MONGODB!")
-        if saved_doc.get('target_column') is None:
-            print(f"[UPLOAD ERROR] ❌ TARGET_COLUMN IS NULL IN MONGODB!")
+        # Upload to Azure Blob Storage (only storage)
+        azure_blob_path = None
 
-        # Save file to disk
-        upload_dir = f"backend/data/{dataset_id}"
-        print(f"[UPLOAD] Creating upload directory: {upload_dir}")
-        os.makedirs(upload_dir, exist_ok=True)
+        try:
+            from app.utils.azure_storage import azure_storage_service
+            from app.core.config import settings
 
-        file_path = os.path.join(upload_dir, file.filename)
-        print(f"[UPLOAD] Saving file to: {file_path}")
+            if not (azure_storage_service.is_configured and settings.AZURE_STORAGE_ENABLED):
+                print(f"[UPLOAD] ⚠️ Azure Blob Storage not configured!")
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Azure Blob Storage is not configured. Please configure Azure credentials."
+                )
 
-        # Write file to disk
-        with open(file_path, 'wb') as f:
-            f.write(contents)
-        print(f"[UPLOAD] ✓ File saved to disk")
+            print(f"[UPLOAD] Uploading to Azure Blob Storage...")
+            azure_blob_path = azure_storage_service.upload_dataset(
+                user_id=str(current_user.id),
+                dataset_id=dataset_id,
+                file_content=contents,
+                filename=file.filename
+            )
+            print(f"[UPLOAD] ✓ File uploaded to Azure: {azure_blob_path}")
 
-        # Update dataset with file path
-        print(f"[UPLOAD] Updating dataset with file path...")
+        except HTTPException:
+            raise
+        except Exception as azure_error:
+            print(f"[UPLOAD] ❌ Azure upload failed: {str(azure_error)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to upload to Azure Blob Storage: {str(azure_error)}"
+            )
+
+        # Update dataset with Azure blob path only
+        print(f"[UPLOAD] Updating dataset with Azure blob path...")
         await mongodb.database["datasets"].update_one(
             {"_id": result.inserted_id},
-            {"$set": {"download_path": upload_dir}}
+            {"$set": {"azure_blob_path": azure_blob_path}}
         )
-        print(f"[UPLOAD] ✓ Dataset updated with file path")
+        print(f"[UPLOAD] ✓ Dataset updated with Azure blob path")
+
+        # Update dataset_dict with Azure blob path for response
+        dataset_dict["azure_blob_path"] = azure_blob_path
 
         # Update user's datasets_count
         print(f"[UPLOAD] Updating user's dataset count...")
@@ -432,6 +402,7 @@ async def upload_dataset(
         print(f"[UPLOAD] Schema columns: {len(schema_cleaned)}")
         print(f"[UPLOAD] Sample rows: {len(sample_rows_cleaned)}")
         print(f"[UPLOAD] Target column: {target_column}")
+        print(f"[UPLOAD] Azure blob path: {azure_blob_path}")
         print("="*80 + "\n")
 
         return DatasetResponse(**dataset_dict)
@@ -500,7 +471,11 @@ async def add_dataset_from_kaggle(
 
         if can_download:
             # CASE 1: Kaggle API is configured - download and FULLY INSPECT
-            download_path = f"./data/kaggle/{current_user.id}/{request.dataset_ref.replace('/', '_')}"
+            # Use temporary directory - will be deleted after Azure upload
+            import tempfile
+            temp_dir = tempfile.mkdtemp(prefix=f"kaggle_{request.dataset_ref.replace('/', '_')}_")
+            download_path = temp_dir
+            print(f"[ADD_KAGGLE] Using temporary directory: {download_path}")
 
             # Download dataset from Kaggle
             result = kaggle_service.download_dataset(
@@ -517,29 +492,9 @@ async def add_dataset_from_kaggle(
                     detail="No CSV files found in the downloaded dataset"
                 )
 
-            # Load with pandas for full inspection
+            # Load with pandas for metadata inspection only (no full CSV storage)
             csv_file_path = csv_files[0]
             file_size = csv_file_path.stat().st_size
-
-            # Read full CSV content for production (ephemeral filesystem)
-            # In production, files get deleted on restart, so we must store in MongoDB
-            from app.core.config import settings
-            csv_content = None
-
-            if settings.ENVIRONMENT == "production":
-                log_memory_usage("Before reading full CSV for production")
-                try:
-                    with open(csv_file_path, 'r', encoding='utf-8') as f:
-                        csv_content = f.read()
-                except UnicodeDecodeError:
-                    try:
-                        with open(csv_file_path, 'r', encoding='latin-1') as f:
-                            csv_content = f.read()
-                    except Exception:
-                        with open(csv_file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                            csv_content = f.read()
-                print(f"[ADD_KAGGLE] CSV content stored: {len(csv_content) if csv_content else 0} bytes for production")
-                log_memory_usage("After reading full CSV")
 
             # Load sample (first 1000 rows for metadata)
             log_memory_usage("Before loading Kaggle dataset sample")
@@ -575,19 +530,7 @@ async def add_dataset_from_kaggle(
             # Auto-detect target column
             target_column = auto_detect_target(list(df.columns), None)
 
-            # Clean NaN values for JSON serialization
-            schema_cleaned = clean_nan_values(schema)
-            sample_rows_cleaned = clean_nan_values(sample_rows)
-
-            # Legacy preview_data for backward compatibility (cleaned)
-            preview_rows = df.head(10).to_dict(orient="records")
-            preview_rows_cleaned = clean_nan_values(preview_rows)
-            preview_data = {
-                "headers": list(df.columns),
-                "rows": [[row.get(col) for col in df.columns] for row in preview_rows_cleaned]
-            }
-
-            # Create dataset record with full metadata
+            # Create dataset record with ONLY metadata - no schema/sample_data in MongoDB
             new_dataset = Dataset(
                 user_id=current_user.id,
                 name=request.dataset_title,
@@ -596,9 +539,6 @@ async def add_dataset_from_kaggle(
                 column_count=col_count,
                 file_size=file_size,
                 status="ready",
-                preview_data=preview_data,
-                schema=schema_cleaned,
-                sample_data=sample_rows_cleaned,
                 target_column=target_column,
             )
 
@@ -606,17 +546,72 @@ async def add_dataset_from_kaggle(
             dataset_dict = new_dataset.model_dump(by_alias=False, exclude={'id'})
             dataset_dict["source"] = "kaggle"
             dataset_dict["kaggle_ref"] = request.dataset_ref
-            dataset_dict["download_path"] = download_path
 
-            # Store CSV content in production for ephemeral filesystem
-            if csv_content:
-                dataset_dict["csv_content"] = csv_content
-                print(f"[ADD_KAGGLE] CSV content stored in MongoDB: {len(csv_content)} bytes")
-            else:
-                print(f"[ADD_KAGGLE] CSV content not stored (development mode, using filesystem)")
+            # Insert dataset to MongoDB (metadata only)
+            print(f"[ADD_KAGGLE] Inserting dataset metadata to MongoDB...")
+            insert_result = await mongodb.database["datasets"].insert_one(dataset_dict)
+            dataset_id = str(insert_result.inserted_id)
+            print(f"[ADD_KAGGLE] ✓ Dataset created with ID: {dataset_id}")
+
+            # Upload to Azure Blob Storage and delete local files
+            azure_blob_path = None
+            try:
+                from app.utils.azure_storage import azure_storage_service
+                from app.core.config import settings
+
+                if not (azure_storage_service.is_configured and settings.AZURE_STORAGE_ENABLED):
+                    print(f"[ADD_KAGGLE] ⚠️ Azure Blob Storage not configured!")
+                    raise HTTPException(
+                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                        detail="Azure Blob Storage is not configured. Please configure Azure credentials."
+                    )
+
+                print(f"[ADD_KAGGLE] Uploading to Azure Blob Storage...")
+                # Read CSV file content
+                with open(csv_file_path, 'rb') as f:
+                    csv_bytes = f.read()
+
+                # Upload using helper method with correct dataset_id
+                azure_blob_path = azure_storage_service.upload_dataset(
+                    user_id=str(current_user.id),
+                    dataset_id=dataset_id,
+                    file_content=csv_bytes,
+                    filename=csv_file_path.name
+                )
+                print(f"[ADD_KAGGLE] ✓ Uploaded to Azure: {azure_blob_path}")
+
+                # Update MongoDB with Azure blob path
+                await mongodb.database["datasets"].update_one(
+                    {"_id": insert_result.inserted_id},
+                    {"$set": {"azure_blob_path": azure_blob_path}}
+                )
+                print(f"[ADD_KAGGLE] ✓ Updated dataset with Azure blob path")
+                
+                # Delete local files after successful Azure upload
+                import shutil
+                if os.path.exists(download_path):
+                    shutil.rmtree(download_path)
+                    print(f"[ADD_KAGGLE] ✓ Deleted local files: {download_path}")
+                    
+            except HTTPException:
+                # Delete the MongoDB record if Azure upload fails
+                await mongodb.database["datasets"].delete_one({"_id": insert_result.inserted_id})
+                raise
+            except Exception as azure_error:
+                # Delete the MongoDB record if Azure upload fails
+                await mongodb.database["datasets"].delete_one({"_id": insert_result.inserted_id})
+                print(f"[ADD_KAGGLE] ❌ Azure upload failed: {str(azure_error)}")
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Failed to upload to Azure Blob Storage: {str(azure_error)}"
+                )
 
             print(f"[ADD_KAGGLE] Fully inspected: {row_count} rows, {col_count} cols, target: {target_column}")
-            print(f"[ADD_KAGGLE] Dataset metadata created, file stored at: {download_path}")
+            print(f"[ADD_KAGGLE] Dataset stored in Azure Blob Storage")
+
+            # Update dataset_dict with Azure blob path for response
+            dataset_dict["_id"] = insert_result.inserted_id
+            dataset_dict["azure_blob_path"] = azure_blob_path
 
             # Clean up memory
             del df
@@ -640,21 +635,19 @@ async def add_dataset_from_kaggle(
                 column_count=0,  # Will be populated after download
                 file_size=file_size,
                 status="pending_download",
-                preview_data=None,
             )
 
             # Add Kaggle metadata
             dataset_dict = new_dataset.model_dump(by_alias=False, exclude={'id'})
             dataset_dict["source"] = "kaggle"
             dataset_dict["kaggle_ref"] = request.dataset_ref
-            dataset_dict["download_path"] = None
 
             print(f"Created pending dataset: {request.dataset_title}, size: {file_size} bytes")
 
-        # Save to database
-        insert_result = await mongodb.database["datasets"].insert_one(dataset_dict)
-        new_dataset.id = insert_result.inserted_id
-        dataset_dict["_id"] = insert_result.inserted_id
+            # Save to database (only for CASE 2 - pending download)
+            insert_result = await mongodb.database["datasets"].insert_one(dataset_dict)
+            new_dataset.id = insert_result.inserted_id
+            dataset_dict["_id"] = insert_result.inserted_id
 
         # Update user's datasets_count
         await mongodb.database["users"].update_one(
@@ -698,9 +691,10 @@ async def add_dataset_from_huggingface(
         import requests
 
         # Use HuggingFace Hub API to check if dataset exists
-        hub_api_url = f"https://huggingface.co/api/datasets/{request.dataset_name}"
+        hub_api_url = normalize_hf_url(request.dataset_url, request.dataset_name)
 
         try:
+
             response = requests.get(hub_api_url, timeout=10)
 
             if response.status_code == 404:
@@ -747,15 +741,12 @@ async def add_dataset_from_huggingface(
             column_count=0,
             uploaded_at=datetime.utcnow(),
             status="pending",
-            preview_data={"headers": [], "rows": []},
-            schema=[],
-            sample_data=[],
-            target_column=None,
+            # Removed: preview_data (use sample_data), download_path (Azure-only)
         )
         dataset_dict = new_dataset.model_dump(by_alias=False, exclude={'id'})
         dataset_dict["huggingface_url"] = request.dataset_url
         dataset_dict["huggingface_dataset_id"] = request.dataset_name
-        dataset_dict["download_path"] = None
+        # No Azure URL yet - HuggingFace datasets loaded on-demand
 
         # Save to database
         insert_result = await mongodb.database["datasets"].insert_one(dataset_dict)
@@ -791,6 +782,16 @@ async def add_dataset_from_huggingface(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to add dataset from HuggingFace: {str(e)}"
         )
+    
+def normalize_hf_url(dataset_url: str, dataset_name: str):
+    if dataset_url.startswith("http"):
+        repo_id = dataset_url.replace(
+            "https://huggingface.co/datasets/", ""
+        ).strip("/")
+    else:
+        repo_id = dataset_name
+
+    return f"https://huggingface.co/api/datasets/{repo_id}"
 
 
 @router.get("", response_model=List[DatasetResponse])
@@ -871,6 +872,10 @@ async def get_dataset(
     dataset_id: str,
     current_user: User = Depends(get_current_user),
 ):
+    """
+    Get dataset details with schema and sample data fetched from Azure Blob Storage
+    """
+    # Get metadata from MongoDB
     dataset = await mongodb.database["datasets"].find_one(
         {"_id": ObjectId(dataset_id), "user_id": current_user.id}
     )
@@ -881,7 +886,60 @@ async def get_dataset(
             detail="Dataset not found"
         )
 
-    return DatasetResponse(**dataset)
+    # If dataset has Azure blob path and is ready, fetch schema and sample data from Azure
+    # Support both new blob_path and legacy azure_dataset_url for backward compatibility
+    blob_path = dataset.get("azure_blob_path") or dataset.get("azure_dataset_url")
+    if blob_path and dataset.get("status") == "ready":
+        try:
+            from app.utils.azure_storage import azure_storage_service
+
+            print(f"[GET_DATASET] Fetching dataset from Azure: {blob_path}")
+
+            # Download CSV from Azure (supports both blob path and full URL)
+            csv_bytes = azure_storage_service.download_dataset(blob_path)
+
+            # Parse CSV and generate schema/sample_data
+            import io
+            df = pd.read_csv(io.BytesIO(csv_bytes), nrows=1000)
+
+            # Build schema
+            schema = [
+                {
+                    "name": col,
+                    "dtype": str(df[col].dtype),
+                    "null_count": int(df[col].isnull().sum()),
+                    "unique_count": int(df[col].nunique())
+                }
+                for col in df.columns
+            ]
+
+            # Get sample rows (first 20)
+            sample_rows = df.head(20).to_dict(orient="records")
+
+            # Clean NaN values
+            schema_cleaned = clean_nan_values(schema)
+            sample_rows_cleaned = clean_nan_values(sample_rows)
+
+            # Add to dataset dict (not stored in MongoDB, just returned)
+            dataset["schema"] = schema_cleaned
+            dataset["sample_data"] = sample_rows_cleaned
+
+            print(f"[GET_DATASET] ✓ Fetched schema: {len(schema_cleaned)} columns")
+            print(f"[GET_DATASET] ✓ Fetched sample_data: {len(sample_rows_cleaned)} rows")
+
+            # Clean up
+            del df
+            force_garbage_collection()
+
+        except Exception as e:
+            print(f"[GET_DATASET] Failed to load dataset from Azure: {str(e)}")
+            # Return metadata only if Azure fetch fails
+            dataset["schema"] = None
+            dataset["sample_data"] = None
+
+    # Clean dataset for JSON serialization
+    cleaned_dataset = clean_nan_values(dataset)
+    return DatasetResponse(**cleaned_dataset)
 
 
 class DatasetUpdateRequest(BaseModel):
@@ -1007,38 +1065,64 @@ async def inspect_huggingface_dataset(dataset: dict, dataset_id: str, user_query
         schema_cleaned = clean_nan_values(schema)
         sample_rows_cleaned = clean_nan_values(sample_rows)
 
-        # In production, store CSV content for ephemeral filesystem
-        from app.core.config import settings
-        csv_content = None
-        if settings.ENVIRONMENT == "production":
+        # Convert DataFrame to CSV and upload to Azure Blob Storage
+        azure_blob_path = None
+        try:
+            from app.utils.azure_storage import azure_storage_service
+            from app.core.config import settings
             import io
-            csv_buffer = io.StringIO()
-            df.to_csv(csv_buffer, index=False)
-            csv_content = csv_buffer.getvalue()
-            print(f"   CSV content generated for production: {len(csv_content)} bytes")
 
-        # Update dataset in database
+            if not (azure_storage_service.is_configured and settings.AZURE_STORAGE_ENABLED):
+                print(f"[HUGGINGFACE INSPECT] ⚠️ Azure Blob Storage not configured!")
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Azure Blob Storage is not configured. Please configure Azure credentials."
+                )
+
+            print(f"[HUGGINGFACE INSPECT] Converting DataFrame to CSV...")
+            # Convert full DataFrame to CSV bytes
+            csv_buffer = io.BytesIO()
+            df.to_csv(csv_buffer, index=False)
+            csv_bytes = csv_buffer.getvalue()
+            file_size = len(csv_bytes)
+
+            print(f"[HUGGINGFACE INSPECT] Uploading to Azure Blob Storage...")
+            # Upload to Azure
+            azure_blob_path = azure_storage_service.upload_dataset(
+                user_id=str(dataset.get("user_id")),
+                dataset_id=dataset_id,
+                file_content=csv_bytes,
+                filename=f"{hf_dataset_id.replace('/', '_')}.csv"
+            )
+            print(f"[HUGGINGFACE INSPECT] ✓ Uploaded to Azure: {azure_blob_path}")
+
+        except HTTPException:
+            raise
+        except Exception as azure_error:
+            print(f"[HUGGINGFACE INSPECT] ❌ Azure upload failed: {str(azure_error)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to upload to Azure Blob Storage: {str(azure_error)}"
+            )
+
+        # Update dataset in MongoDB with metadata only (NO schema/sample_data)
         update_data = {
             "row_count": row_count,
             "column_count": col_count,
-            "file_size": 0,  # HuggingFace datasets don't have a direct file size
-            "file_name": f"{hf_dataset_id.replace('/', '_')}.hf",
+            "file_size": file_size,
+            "file_name": f"{hf_dataset_id.replace('/', '_')}.csv",
             "status": "ready",
-            "schema": schema_cleaned,
-            "sample_data": sample_rows_cleaned,
             "target_column": target_column,
+            "azure_blob_path": azure_blob_path,
         }
-
-        # Store CSV content if in production
-        if csv_content:
-            update_data["csv_content"] = csv_content
 
         await mongodb.database["datasets"].update_one(
             {"_id": ObjectId(dataset_id)},
             {"$set": update_data}
         )
 
-        print(f"   ✅ Successfully inspected HuggingFace dataset: {row_count} rows, {col_count} columns")
+        print(f"[HUGGINGFACE INSPECT] ✅ Successfully inspected HuggingFace dataset: {row_count} rows, {col_count} columns")
+        print(f"[HUGGINGFACE INSPECT] Dataset stored in Azure: {azure_blob_path}")
 
         # Clean up memory
         del df, hf_data
@@ -1047,13 +1131,12 @@ async def inspect_huggingface_dataset(dataset: dict, dataset_id: str, user_query
 
         return {
             "huggingface_dataset_id": hf_dataset_id,
-            "size": 0,
+            "size": file_size,
             "rows": row_count,
             "columns": col_count,
-            "schema": schema_cleaned,
-            "sample": sample_rows_cleaned,
             "target": target_column,
-            "file_name": f"{hf_dataset_id.replace('/', '_')}.hf"
+            "file_name": f"{hf_dataset_id.replace('/', '_')}.csv",
+            "azure_blob_path": azure_blob_path
         }
 
     except HTTPException:
@@ -1111,36 +1194,35 @@ async def inspect_dataset(
                 detail="Kaggle API is not configured. Cannot inspect dataset."
             )
 
-        # 1. Download dataset (if not already downloaded)
-        download_path = f"./data/kaggle/{current_user.id}/{kaggle_ref.replace('/', '_')}"
-        Path(download_path).mkdir(parents=True, exist_ok=True)
+        # 1. Download dataset to temporary directory
+        import tempfile
+        import shutil
+        
+        temp_dir = tempfile.mkdtemp(prefix=f"inspect_{current_user.id}_")
+        download_path = temp_dir
+        
+        print(f"[INSPECT] Starting download of dataset: {kaggle_ref}")
+        print(f"[INSPECT] Temp download path: {download_path}")
 
-        # Check if already downloaded
+        try:
+            kaggle_service.download_dataset(
+                dataset_ref=kaggle_ref,
+                download_path=download_path
+            )
+            print(f"[INSPECT] Download completed successfully")
+        except Exception as download_error:
+            print(f"[INSPECT] Download failed: {str(download_error)}")
+            shutil.rmtree(temp_dir)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to download dataset from Kaggle: {str(download_error)}"
+            )
+
+        # 2. Find CSV files after download
         csv_files = list(Path(download_path).glob("*.csv"))
-
+        
         if not csv_files:
-            print(f"[INSPECT] Starting download of dataset: {kaggle_ref}")
-            print(f"[INSPECT] Download path: {download_path}")
-            print(f"[INSPECT] Kaggle configured: {kaggle_service.is_configured}")
-
-            try:
-                kaggle_service.download_dataset(
-                    dataset_ref=kaggle_ref,
-                    download_path=download_path
-                )
-                print(f"[INSPECT] Download completed successfully")
-            except Exception as download_error:
-                print(f"[INSPECT] Download failed: {str(download_error)}")
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=f"Failed to download dataset from Kaggle: {str(download_error)}"
-                )
-
-            # 2. Find CSV files after download
-            csv_files = list(Path(download_path).glob("*.csv"))
-        else:
-            print(f"[INSPECT] Dataset already downloaded, using cached version")
-        if not csv_files:
+            shutil.rmtree(temp_dir)
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Dataset contains no CSV files"
@@ -1184,17 +1266,51 @@ async def inspect_dataset(
         schema_cleaned = clean_nan_values(schema)
         sample_rows_cleaned = clean_nan_values(sample_rows)
 
-        # 9. Update dataset in database with inspection results
+        # 9. Upload CSV to Azure Blob Storage
+        azure_blob_path = None
+        try:
+            from app.utils.azure_storage import azure_storage_service
+            from app.core.config import settings
+
+            if not (azure_storage_service.is_configured and settings.AZURE_STORAGE_ENABLED):
+                print(f"[INSPECT] ⚠️ Azure Blob Storage not configured!")
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Azure Blob Storage is not configured. Please configure Azure credentials."
+                )
+
+            print(f"[INSPECT] Uploading to Azure Blob Storage...")
+            # Read CSV file content
+            with open(csv_path, 'rb') as f:
+                csv_bytes = f.read()
+
+            # Upload to Azure
+            azure_blob_path = azure_storage_service.upload_dataset(
+                user_id=str(current_user.id),
+                dataset_id=request.dataset_id,
+                file_content=csv_bytes,
+                filename=csv_path.name
+            )
+            print(f"[INSPECT] ✓ Uploaded to Azure: {azure_blob_path}")
+
+        except HTTPException:
+            raise
+        except Exception as azure_error:
+            print(f"[INSPECT] ❌ Azure upload failed: {str(azure_error)}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to upload to Azure Blob Storage: {str(azure_error)}"
+            )
+
+        # 10. Update dataset in MongoDB with metadata only (NO schema/sample_data)
         update_data = {
             "row_count": row_count,
             "column_count": col_count,
             "file_size": size_bytes,
             "file_name": csv_path.name,
             "status": "ready",
-            "download_path": download_path,
-            "schema": schema_cleaned,
-            "sample_data": sample_rows_cleaned,
             "target_column": target_column,
+            "azure_blob_path": azure_blob_path,
         }
 
         await mongodb.database["datasets"].update_one(
@@ -1202,17 +1318,17 @@ async def inspect_dataset(
             {"$set": update_data}
         )
 
-        print(f"Successfully inspected dataset: {row_count} rows, {col_count} columns, target: {target_column}")
+        print(f"[INSPECT] Successfully inspected dataset: {row_count} rows, {col_count} columns, target: {target_column}")
+        print(f"[INSPECT] Dataset stored in Azure: {azure_blob_path}")
 
         return {
             "kaggle_ref": kaggle_ref,
             "size": size_bytes,
             "rows": row_count,
             "columns": col_count,
-            "schema": schema_cleaned,
-            "sample": sample_rows_cleaned,
             "target": target_column,
-            "file_name": csv_path.name
+            "file_name": csv_path.name,
+            "azure_blob_path": azure_blob_path
         }
 
     except HTTPException:
@@ -1223,6 +1339,12 @@ async def inspect_dataset(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to inspect dataset: {str(e)}"
         )
+    finally:
+        # Cleanup temp directory
+        if 'temp_dir' in locals() and os.path.exists(temp_dir):
+            import shutil
+            shutil.rmtree(temp_dir)
+            print(f"[INSPECT] Cleaned up temp directory: {temp_dir}")
 
 
 @router.delete("/{dataset_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -1230,6 +1352,9 @@ async def delete_dataset(
     dataset_id: str,
     current_user: User = Depends(get_current_user),
 ):
+    """
+    Delete dataset from both MongoDB and Azure Blob Storage
+    """
     try:
         # Validate and convert dataset_id to ObjectId
         try:
@@ -1241,19 +1366,44 @@ async def delete_dataset(
                 detail=f"Invalid dataset ID format: {dataset_id}"
             )
 
-        print(f"Attempting to delete dataset: {dataset_id} for user: {current_user.id}")
+        print(f"[DELETE_DATASET] Attempting to delete dataset: {dataset_id} for user: {current_user.id}")
 
-        result = await mongodb.database["datasets"].delete_one(
+        # Get dataset to check if it exists and has Azure URL
+        dataset = await mongodb.database["datasets"].find_one(
             {"_id": dataset_oid, "user_id": current_user.id}
         )
 
-        print(f"Delete result: deleted_count={result.deleted_count}")
-
-        if result.deleted_count == 0:
+        if not dataset:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Dataset not found or you don't have permission to delete it"
             )
+
+        # Delete from Azure Blob Storage if blob path exists
+        # Support both new blob_path and legacy azure_dataset_url
+        blob_path = dataset.get("azure_blob_path") or dataset.get("azure_dataset_url")
+        if blob_path:
+            try:
+                from app.utils.azure_storage import azure_storage_service
+                print(f"[DELETE_DATASET] Deleting from Azure: {blob_path}")
+
+                # Delete dataset files from Azure using user_id and dataset_id
+                deleted_count = azure_storage_service.delete_dataset(
+                    user_id=str(current_user.id),
+                    dataset_id=dataset_id
+                )
+                print(f"[DELETE_DATASET] ✓ Deleted {deleted_count} files from Azure")
+
+            except Exception as azure_error:
+                print(f"[DELETE_DATASET] ⚠️ Failed to delete from Azure: {str(azure_error)}")
+                # Continue with MongoDB deletion even if Azure deletion fails
+
+        # Delete from MongoDB
+        result = await mongodb.database["datasets"].delete_one(
+            {"_id": dataset_oid, "user_id": current_user.id}
+        )
+
+        print(f"[DELETE_DATASET] MongoDB delete result: deleted_count={result.deleted_count}")
 
         # Update user's datasets_count
         await mongodb.database["users"].update_one(
@@ -1261,12 +1411,13 @@ async def delete_dataset(
             {"$inc": {"datasets_count": -1}}
         )
 
-        print(f"Successfully deleted dataset: {dataset_id}")
+        print(f"[DELETE_DATASET] ✓ Successfully deleted dataset: {dataset_id}")
         return None
+
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Error deleting dataset: {str(e)}")
+        print(f"[DELETE_DATASET] Error deleting dataset: {str(e)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to delete dataset: {str(e)}"
@@ -1346,7 +1497,7 @@ async def download_progress_stream(
     async def event_generator():
         try:
             # Start the download in background
-            download_path = "./data/downloads"
+            download_path = None # Let service handle temp dir creation
 
             # Track progress
             progress_data = {"progress": 0, "status": "starting", "message": "Initializing download..."}
@@ -1455,32 +1606,25 @@ async def download_multiple_datasets_endpoint(
 @router.post("/download/kaggle")
 async def download_kaggle_dataset_endpoint(
     dataset_id: str,
-    download_path: Optional[str] = None,
     current_user: User = Depends(get_current_user),
 ):
+    """
+    Download Kaggle dataset to Azure Blob Storage (uses temp directory, auto-cleaned)
+    """
     try:
-        if not kaggle_service.is_configured:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Kaggle API is not configured. Please set KAGGLE_USERNAME and KAGGLE_KEY."
-            )
-        path = download_path or "E:/Startup/smart-ml-assistant/backend/downloads"
-        Path(path).mkdir(parents=True, exist_ok=True)
-        success = dataset_download_service.download_kaggle_dataset(dataset_id, path)
-        if success:
-            file_path = f"{path}/{dataset_id.split('/')[-1]}"
-            return {
-                "success": True,
-                "dataset_id": dataset_id,
-                "source": "Kaggle",
-                "message": f"Dataset {dataset_id} downloaded successfully",
-                "file_path": file_path
-            }
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to download Kaggle dataset"
-            )
+        result = await dataset_download_service.download_dataset(
+            dataset_id=dataset_id,
+            source="Kaggle",
+            download_path=None  # Uses temp directory, auto-uploaded to Azure
+        )
+
+        return {
+            "success": result.get("success", False),
+            "dataset_id": dataset_id,
+            "source": "Kaggle",
+            "message": result.get("message", "Download completed"),
+            "azure_url": result.get("azure_url")  # Azure URL instead of local path
+        }
     except HTTPException:
         raise
     except Exception as e:
@@ -1493,32 +1637,25 @@ async def download_kaggle_dataset_endpoint(
 @router.post("/download/huggingface")
 async def download_huggingface_dataset_endpoint(
     dataset_id: str,
-    download_path: Optional[str] = None,
     current_user: User = Depends(get_current_user),
 ):
+    """
+    Download HuggingFace dataset to Azure Blob Storage (uses temp directory, auto-cleaned)
+    """
     try:
-        if not huggingface_service.is_configured:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="HuggingFace API is not configured. Please set HF_TOKEN."
-            )
-        path = download_path or "E:/Startup/smart-ml-assistant/backend/downloads"
-        Path(path).mkdir(parents=True, exist_ok=True)
-        success = dataset_download_service.download_huggingface_dataset(dataset_id, path)
-        if success:
-            file_path = os.path.join(path, dataset_id.replace('/', '_'))
-            return {
-                "success": True,
-                "dataset_id": dataset_id,
-                "source": "HuggingFace",
-                "message": f"Dataset {dataset_id} downloaded successfully to {file_path}",
-                "file_path": file_path
-            }
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to download HuggingFace dataset"
-            )
+        result = await dataset_download_service.download_dataset(
+            dataset_id=dataset_id,
+            source="HuggingFace",
+            download_path=None  # Uses temp directory, auto-uploaded to Azure
+        )
+
+        return {
+            "success": result.get("success", False),
+            "dataset_id": dataset_id,
+            "source": "HuggingFace",
+            "message": result.get("message", "Download completed"),
+            "azure_url": result.get("azure_url")  # Azure URL instead of local path
+        }
     except HTTPException:
         raise
     except Exception as e:

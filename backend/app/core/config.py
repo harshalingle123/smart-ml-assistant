@@ -53,8 +53,16 @@ class Settings(BaseSettings):
     # HuggingFace Configuration
     HF_TOKEN: Optional[str] = None
 
-    # Dataset Download Configuration
-    DOWNLOAD_PATH: str = "./data/downloads"
+    # Azure Blob Storage Configuration (REQUIRED for dataset and model storage)
+    # All CSV files and trained models are stored exclusively in Azure Blob Storage
+    # MongoDB stores only metadata. No local filesystem storage is used.
+    AZURE_TENANT_ID: Optional[str] = None
+    AZURE_CLIENT_ID: Optional[str] = None
+    AZURE_CLIENT_SECRET: Optional[str] = None
+    AZURE_ACCOUNT_URL: Optional[str] = None
+    AZURE_DATASETS_CONTAINER: str = "datasets"
+    AZURE_MODELS_CONTAINER: str = "models"
+    AZURE_STORAGE_ENABLED: bool = True  # Enable/disable Azure storage
 
     @property
     def cors_origins_list(self) -> List[str]:

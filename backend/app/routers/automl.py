@@ -28,15 +28,37 @@ async def event_generator(dataset_id: str, chat_id: str) -> AsyncGenerator[str, 
             yield event({"type": "error", "message": "Dataset not found"})
             return
 
-        # Check if dataset has data
-        if not dataset.get("download_path") and dataset.get("source") == "kaggle":
-            yield event({"type": "error", "message": "Dataset not downloaded. Please inspect the dataset first."})
+        # Check if dataset has Azure blob path
+        # Support both new blob_path and legacy azure_dataset_url
+        blob_path = dataset.get("azure_blob_path") or dataset.get("azure_dataset_url")
+        if not blob_path:
+            yield event({"type": "error", "message": "Dataset not available in Azure Blob Storage. Please ensure it is uploaded."})
             return
 
-        target_column = dataset.get("target_column")
-        if not target_column:
-            yield event({"type": "error", "message": "No target column set. Please select a target column first."})
+        # Load dataset from Azure Blob Storage
+        try:
+            from app.utils.azure_storage import azure_storage_service
+            from app.core.config import settings
+            if azure_storage_service.is_configured and settings.AZURE_STORAGE_ENABLED:
+                yield event({"type": "status", "message": "☁️ Loading data from Azure Blob Storage..."})
+                # Use download_dataset which accepts both blob path and full URL
+                csv_bytes = azure_storage_service.download_dataset(blob_path)
+                csv_content = csv_bytes.decode('utf-8')
+                yield event({"type": "status", "message": "✓ Data loaded from Azure Blob Storage"})
+            else:
+                raise HTTPException(status_code=503, detail="Azure Blob Storage not configured.")
+        except Exception as azure_error:
+            yield event({"type": "error", "message": f"Failed to load dataset from Azure: {str(azure_error)}"})
             return
+
+        # Parse CSV content into DataFrame
+        import io
+        try:
+            df = pd.read_csv(io.StringIO(csv_content), encoding='utf-8')
+        except UnicodeDecodeError:
+            df = pd.read_csv(io.StringIO(csv_content), encoding='latin-1')
+        except Exception:
+            df = pd.read_csv(io.StringIO(csv_content), encoding='utf-8', errors='ignore')
 
         yield event({"type": "status", "message": "🚀 Starting AutoML training..."})
         await asyncio.sleep(1)
@@ -52,52 +74,9 @@ async def event_generator(dataset_id: str, chat_id: str) -> AsyncGenerator[str, 
         yield event({"type": "status", "message": "📊 Loading dataset..."})
         await asyncio.sleep(1)
 
-        # Load dataset - prioritize csv_content from MongoDB (production-safe)
+        # Load dataset from Azure Blob Storage ONLY
         try:
-            csv_content = dataset.get("csv_content")
-
-            if csv_content:
-                # Load from MongoDB-stored CSV content (works in production)
-                yield event({"type": "status", "message": "📦 Loading data from database..."})
-                import io
-                try:
-                    df = pd.read_csv(io.StringIO(csv_content), encoding='utf-8')
-                except UnicodeDecodeError:
-                    try:
-                        df = pd.read_csv(io.StringIO(csv_content), encoding='latin-1')
-                    except Exception:
-                        df = pd.read_csv(io.StringIO(csv_content), encoding='utf-8', errors='ignore')
-
-            else:
-                # Fallback to file system for backward compatibility
-                yield event({"type": "status", "message": "📂 Loading data from file system..."})
-                if dataset.get("source") == "upload":
-                    # For uploaded datasets, use the file path
-                    file_path = f"backend/data/{dataset_id}/{dataset['file_name']}"
-                else:
-                    # For Kaggle datasets, use download path
-                    download_path = dataset.get("download_path")
-                    if not download_path or not os.path.exists(download_path):
-                        yield event({"type": "error", "message": f"Dataset download path not found: {download_path}"})
-                        return
-
-                    # Find CSV file in download directory
-                    from pathlib import Path
-                    csv_files = list(Path(download_path).glob("*.csv"))
-                    if not csv_files:
-                        yield event({"type": "error", "message": f"No CSV files found in: {download_path}"})
-                        return
-
-                    file_path = str(csv_files[0])
-
-                # Load CSV with encoding fallback
-                try:
-                    df = pd.read_csv(file_path, encoding='utf-8')
-                except UnicodeDecodeError:
-                    try:
-                        df = pd.read_csv(file_path, encoding='latin-1')
-                    except Exception:
-                        df = pd.read_csv(file_path, encoding='utf-8', errors='ignore')
+            # NOTE: All datasets must be stored in Azure. No local filesystem or MongoDB csv_content fallback.
 
             await mongodb.database.messages.insert_one({
                 "chat_id": ObjectId(chat_id),
@@ -141,6 +120,13 @@ async def event_generator(dataset_id: str, chat_id: str) -> AsyncGenerator[str, 
 
         yield event({"type": "status", "message": "🔧 Preparing data..."})
         await asyncio.sleep(1)
+
+        # Get target column from dataset metadata
+        target_column = dataset.get("target_column")
+        if not target_column:
+            error_msg = "Target column not set for this dataset. Please select a target column first."
+            yield event({"type": "error", "message": error_msg})
+            return
 
         # Check if target column exists
         if target_column not in df.columns:
@@ -195,15 +181,18 @@ async def event_generator(dataset_id: str, chat_id: str) -> AsyncGenerator[str, 
             "timestamp": datetime.utcnow()
         })
 
+
         # Determine if classification or regression
         is_classification = df[target_column].dtype == 'object' or df[target_column].nunique() < 20
 
         if use_autogluon and TabularPredictor:
             # REAL AutoML training
             try:
-                # Create model directory
-                model_path = f"backend/models/{dataset_id}"
-                os.makedirs(model_path, exist_ok=True)
+                # Create temporary model directory
+                import tempfile
+                temp_dir = tempfile.mkdtemp(prefix=f"model_{dataset_id}_")
+                model_path = temp_dir
+                print(f"[AUTOML] Using temporary directory: {model_path}")
 
                 yield event({"type": "status", "message": "🚀 Starting AutoML training with real ML models..."})
                 await asyncio.sleep(0.5)
@@ -350,6 +339,7 @@ async def event_generator(dataset_id: str, chat_id: str) -> AsyncGenerator[str, 
 
 ✅ Model saved successfully!"""
 
+
         # Save model to database
         model_doc = {
             "user_id": dataset["user_id"],
@@ -363,10 +353,59 @@ async def event_generator(dataset_id: str, chat_id: str) -> AsyncGenerator[str, 
             "status": "ready",
             "task_type": "classification" if is_classification else "regression",
             "metrics": metrics,
-            "model_path": f"backend/models/{dataset_id}" if use_autogluon else None,
             "uses_real_model": use_autogluon,
             "created_at": datetime.utcnow()
         }
+
+        # Upload model to Azure Blob Storage if real model was trained
+        if use_autogluon and predictor:
+            try:
+                from app.utils.azure_storage import azure_storage_service
+                from app.core.config import settings
+                import shutil
+                
+                if azure_storage_service.is_configured and settings.AZURE_STORAGE_ENABLED:
+                    yield event({"type": "status", "message": "☁️ Uploading model to Azure Blob Storage..."})
+
+                    # Zip the model directory
+                    # predictor.path is the temp directory where model was saved
+                    model_temp_path = predictor.path
+                    zip_base_name = f"{model_temp_path}_archive"
+                    zip_path = shutil.make_archive(zip_base_name, 'zip', model_temp_path)
+
+                    # Read zip file
+                    with open(zip_path, 'rb') as f:
+                        model_bytes = f.read()
+
+                    # Upload using helper method
+                    azure_blob_path = azure_storage_service.upload_model(
+                        user_id=str(dataset["user_id"]),
+                        model_id=str(dataset_id), # Using dataset_id as model grouping for now, or generate new ID
+                        model_bytes=model_bytes,
+                        version="v1"
+                    )
+
+                    model_doc["azure_blob_path"] = azure_blob_path
+                    yield event({"type": "status", "message": "✓ Model uploaded to Azure Blob Storage"})
+                    
+                    # Cleanup temp files
+                    try:
+                        shutil.rmtree(model_temp_path)
+                        os.remove(zip_path)
+                        print(f"[AUTOML] Cleaned up temp model files: {model_temp_path}")
+                    except Exception as cleanup_error:
+                        print(f"[AUTOML] Warning: Failed to cleanup temp files: {cleanup_error}")
+                        
+                else:
+                    yield event({"type": "status", "message": "⚠️ Azure not configured - Model not persisted"})
+                    
+            except Exception as e:
+                error_msg = f"Failed to upload model to Azure: {str(e)}"
+                print(f"[AUTOML] {error_msg}")
+                yield event({"type": "error", "message": error_msg})
+                # Don't fail the whole process, just log error
+
+
 
         result = await mongodb.database.models.insert_one(model_doc)
         model_id = str(result.inserted_id)

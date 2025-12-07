@@ -318,6 +318,47 @@ export const getDatasets = async () => {
   }
 };
 
+// Get single dataset with schema and sample data from Azure
+export const getDataset = async (datasetId: string) => {
+  try {
+    console.log('[API] Fetching single dataset from:', `${BASE_URL}/api/datasets/${datasetId}`);
+    const headers = getAuthHeaders();
+
+    const response = await fetch(`${BASE_URL}/api/datasets/${datasetId}`, {
+      headers: headers
+    });
+
+    console.log('[API] Response status:', response.status);
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('[API] Error response:', errorText);
+
+      if (response.status === 404) {
+        throw new Error('Dataset not found');
+      }
+
+      throw new Error(`Failed to fetch dataset: ${response.status} ${errorText}`);
+    }
+
+    const data = await response.json();
+    console.log('[API] Dataset fetched successfully:', {
+      id: data.id,
+      name: data.name,
+      status: data.status,
+      hasSchema: !!data.schema,
+      hasSampleData: !!data.sampleData,
+      schemaLength: data.schema?.length || 0,
+      sampleDataLength: data.sampleData?.length || 0,
+    });
+
+    return data;
+  } catch (error) {
+    console.error('[API] Failed to fetch dataset:', error);
+    throw error;
+  }
+};
+
 export const addDatasetFromKaggle = async (data: {
   dataset_ref: string;
   dataset_title: string;

@@ -16,7 +16,7 @@ class DatasetSearchRequest(BaseModel):
 
 class DatasetDownloadRequest(BaseModel):
     dataset_ref: str
-    download_path: Optional[str] = "./data/kaggle"
+    # Removed: download_path (deprecated - using Azure Blob Storage only)
 
 
 @router.get("/status")
@@ -74,13 +74,13 @@ async def download_dataset(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Download a dataset from Kaggle
+    Download a dataset from Kaggle to Azure Blob Storage (uses temp directory, auto-cleaned)
 
     Args:
-        download_request: Dataset reference and download path
+        download_request: Dataset reference (e.g., "username/dataset-name")
 
     Returns:
-        Download status and information
+        Download status with Azure URL
     """
     if not kaggle_service.is_available():
         raise HTTPException(
@@ -89,9 +89,13 @@ async def download_dataset(
         )
 
     try:
-        result = kaggle_service.download_dataset(
-            dataset_ref=download_request.dataset_ref,
-            download_path=download_request.download_path
+        # Use dataset_download_service which handles temp dir + Azure upload
+        from app.services.dataset_download_service import dataset_download_service
+
+        result = await dataset_download_service.download_dataset(
+            dataset_id=download_request.dataset_ref,
+            source="Kaggle",
+            download_path=None  # Uses temp dir, uploads to Azure, auto-cleanup
         )
 
         return result

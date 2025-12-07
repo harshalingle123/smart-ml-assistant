@@ -13,6 +13,7 @@ class ModelCreate(BaseModel):
     loss: Optional[str] = None
     status: str = "ready"
     dataset_id: Optional[PyObjectId] = None
+    azure_model_url: Optional[str] = None
 
 
 class ModelResponse(BaseModel):
@@ -27,7 +28,9 @@ class ModelResponse(BaseModel):
     status: str
     dataset_id: Optional[PyObjectId] = None
     created_at: datetime
+    azure_model_url: Optional[str] = Field(default=None, serialization_alias="azureModelUrl")
 
     class Config:
         from_attributes = True
         json_encoders = {PyObjectId: str}
+        populate_by_name = True

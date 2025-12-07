@@ -12,13 +12,13 @@ class DatasetCreate(BaseModel):
     column_count: int
     file_size: int
     status: str = "processing"
-    preview_data: Optional[Any] = None
+    # Removed: preview_data (legacy field - use sample_data instead)
 
 
 class DatasetDownloadRequest(BaseModel):
     dataset_id: str = Field(..., serialization_alias="datasetId")
     source: str
-    download_path: Optional[str] = Field(default=None, serialization_alias="downloadPath")
+    # Removed: download_path (Azure-only storage, no local paths)
 
     model_config = ConfigDict(
         populate_by_name=True
@@ -30,7 +30,7 @@ class DatasetDownloadResponse(BaseModel):
     dataset_id: str = Field(serialization_alias="datasetId")
     source: str
     message: str
-    file_path: Optional[str] = Field(default=None, serialization_alias="filePath")
+    azure_url: Optional[str] = Field(default=None, serialization_alias="azureUrl")  # Azure Blob Storage URL
 
     model_config = ConfigDict(
         populate_by_name=True
@@ -39,7 +39,7 @@ class DatasetDownloadResponse(BaseModel):
 
 class MultipleDatasetDownloadRequest(BaseModel):
     datasets: List[Dict[str, str]]
-    download_path: Optional[str] = Field(default=None, serialization_alias="downloadPath")
+    # Removed: download_path (Azure-only storage, no local paths)
 
     model_config = ConfigDict(
         populate_by_name=True
@@ -52,7 +52,7 @@ class MultipleDatasetDownloadResponse(BaseModel):
     success_count: int = Field(serialization_alias="successCount")
     fail_count: int = Field(serialization_alias="failCount")
     results: List[Dict[str, Any]]
-    download_path: str = Field(serialization_alias="downloadPath")
+    # Removed: download_path (files uploaded to Azure, no local paths)
 
     model_config = ConfigDict(
         populate_by_name=True
@@ -91,13 +91,14 @@ class DatasetResponse(BaseModel):
     column_count: int = Field(serialization_alias="columnCount")
     file_size: int = Field(serialization_alias="fileSize")
     status: str
-    preview_data: Optional[Any] = Field(default=None, serialization_alias="previewData")
+    azure_dataset_url: Optional[str] = Field(default=None, serialization_alias="azureDatasetUrl")  # Azure Blob Storage URL
     uploaded_at: datetime = Field(serialization_alias="uploadedAt")
     source: Optional[str] = None
     kaggle_ref: Optional[str] = Field(default=None, serialization_alias="kaggleRef")
     huggingface_dataset_id: Optional[str] = Field(default=None, serialization_alias="huggingfaceDatasetId")
     huggingface_url: Optional[str] = Field(default=None, serialization_alias="huggingfaceUrl")
-    download_path: Optional[str] = Field(default=None, serialization_alias="downloadPath")
+    # Removed: download_path (local filesystem), preview_data (legacy - use sample_data)
+    # Metadata fields (OK to keep for preview purposes):
     schema: Optional[list] = None
     sample_data: Optional[list] = Field(default=None, serialization_alias="sampleData")
     target_column: Optional[str] = Field(default=None, serialization_alias="targetColumn")

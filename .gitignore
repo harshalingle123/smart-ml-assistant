@@ -105,6 +105,28 @@ Requirement/
 # Backend temp directories
 backend/backend/
 backend/data/
+backend/downloads/
+backend/uploads/
+backend/temp/
+backend/model_cache/
+backend/*.log
+
+# Azure migration (keep migration docs local only)
+AZURE_MIGRATION_*.md
+
+# NOTE: All datasets and models are stored in Azure Blob Storage ONLY
+# No local data storage is used. These entries prevent accidental commits of temp files.
+*.csv
+*.pkl
+*.joblib
+*.h5
+*.pt
+*.pth
+*.onnx
+*.zip
+
+# Exclude necessary CSV files (if any)
+!requirements.txt
 
 # Claude Code
 .claude/

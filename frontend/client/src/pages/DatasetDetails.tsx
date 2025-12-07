@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, ArrowLeft, Download, Target, Table2, FileText, CheckCircle, Brain } from "lucide-react";
-import { getDatasets, inspectDataset, checkKaggleStatus, updateDataset, createChat, checkBackendHealth } from "@/lib/api";
+import { getDataset, getDatasets, inspectDataset, checkKaggleStatus, updateDataset, createChat, checkBackendHealth } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import {
   Select,
@@ -78,43 +78,47 @@ export default function DatasetDetails() {
   const loadDataset = async (id: string) => {
     try {
       setLoading(true);
-      const response = await getDatasets();
-      const datasetsList = Array.isArray(response) ? response : (response.datasets || []);
+      console.log("[DatasetDetails] Loading dataset:", id);
 
-      const found = datasetsList.find((ds: any) => (ds._id || ds.id) === id);
-      if (found) {
-        // Normalize schema field (handle both 'schema' and 'columnSchema')
-        const schema = found.schema || found.columnSchema || [];
+      // Fetch single dataset with schema and sample data from Azure
+      const data = await getDataset(id);
 
-        const mappedDataset = {
-          ...found,
-          id: found.id || found._id,
-          schema: schema,
-        };
+      // Normalize schema field (handle both 'schema' and 'columnSchema')
+      const schema = data.schema || data.columnSchema || [];
 
-        console.log("[DatasetDetails] Loaded dataset:", mappedDataset);
-        console.log("[DatasetDetails] Schema:", mappedDataset.schema);
-        console.log("[DatasetDetails] Schema source:", found.schema ? 'schema' : found.columnSchema ? 'columnSchema' : 'none');
-        console.log("[DatasetDetails] Schema length:", schema.length);
-        console.log("[DatasetDetails] Sample Data:", mappedDataset.sampleData);
-        console.log("[DatasetDetails] Target Column:", mappedDataset.targetColumn);
+      const mappedDataset = {
+        ...data,
+        id: data.id || data._id,
+        schema: schema,
+      };
 
-        setDataset(mappedDataset);
-        setSelectedTarget(mappedDataset.targetColumn || "");
-      } else {
-        toast({
-          title: "Error",
-          description: "Dataset not found",
-          variant: "destructive",
-        });
-      }
+      console.log("[DatasetDetails] Loaded dataset:", mappedDataset);
+      console.log("[DatasetDetails] Schema:", mappedDataset.schema);
+      console.log("[DatasetDetails] Schema length:", schema.length);
+      console.log("[DatasetDetails] Sample Data:", mappedDataset.sampleData);
+      console.log("[DatasetDetails] Sample Data length:", mappedDataset.sampleData?.length || 0);
+      console.log("[DatasetDetails] Target Column:", mappedDataset.targetColumn);
+      console.log("[DatasetDetails] Azure URL:", data.azureDatasetUrl);
+
+      setDataset(mappedDataset);
+      setSelectedTarget(mappedDataset.targetColumn || "");
     } catch (error) {
       console.error("Failed to load dataset:", error);
+
+      const errorMessage = error instanceof Error ? error.message : "Failed to load dataset";
+
       toast({
         title: "Error",
-        description: "Failed to load dataset",
+        description: errorMessage,
         variant: "destructive",
       });
+
+      // Redirect to datasets list if dataset not found
+      if (errorMessage.includes('not found')) {
+        setTimeout(() => {
+          setLocation('/datasets');
+        }, 2000);
+      }
     } finally {
       setLoading(false);
     }
@@ -530,31 +534,40 @@ KAGGLE_KEY=your_key_here
               </div>
 
               {/* Train Model Button */}
-              {dataset.targetColumn && dataset.status === "ready" && (
-                <div className="pt-2 border-t">
-                  <Button
-                    onClick={handleTrainModel}
-                    disabled={training}
-                    size="lg"
-                    className="w-full sm:w-auto"
-                  >
-                    {training ? (
-                      <>
-                        <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                        Starting Training...
-                      </>
-                    ) : (
-                      <>
-                        <Brain className="h-5 w-5 mr-2" />
-                        Train Model with AutoML
-                      </>
-                    )}
-                  </Button>
+              <div className="pt-2 border-t">
+                <Button
+                  onClick={handleTrainModel}
+                  disabled={training || !dataset.targetColumn || dataset.status !== "ready"}
+                  size="lg"
+                  className="w-full sm:w-auto"
+                >
+                  {training ? (
+                    <>
+                      <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                      Starting Training...
+                    </>
+                  ) : (
+                    <>
+                      <Brain className="h-5 w-5 mr-2" />
+                      Train Model with AutoML
+                    </>
+                  )}
+                </Button>
+                {dataset.targetColumn && dataset.status === "ready" ? (
                   <p className="text-xs text-muted-foreground mt-2">
                     Start automatic machine learning training with live progress in chat view
                   </p>
-                </div>
-              )}
+                ) : (
+                  <div className="text-xs text-amber-600 dark:text-amber-400 mt-2 space-y-1">
+                    {dataset.status !== "ready" && (
+                      <p>⚠️ Dataset must be inspected first. Click 'Download & Inspect Dataset' above.</p>
+                    )}
+                    {!dataset.targetColumn && dataset.status === "ready" && (
+                      <p>⚠️ Please select a target column first.</p>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           </CardContent>
         </Card>

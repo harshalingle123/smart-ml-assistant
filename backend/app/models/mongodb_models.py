@@ -82,13 +82,17 @@ class Model(BaseModel):
     user_id: PyObjectId = Field(...)
     name: str = Field(...)
     base_model: str = Field(...)
-    version: str = Field(...)
+    version: str = Field(default="v1")
+    azure_blob_path: Optional[str] = None  # Azure blob path (e.g., user_id/model_id/model-v1.zip)
+    azure_model_url: Optional[str] = None  # DEPRECATED: Legacy field for backward compatibility
+    task_type: Optional[str] = None  # "classification" or "regression"
     accuracy: Optional[str] = None
     f1_score: Optional[str] = None
     loss: Optional[str] = None
     status: str = Field(default="ready")
     dataset_id: Optional[PyObjectId] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
 
     class Config:
         populate_by_name = True
@@ -105,17 +109,14 @@ class Dataset(BaseModel):
     column_count: int = Field(...)
     file_size: int = Field(...)
     status: str = Field(default="processing")
-    preview_data: Optional[Any] = None
+    azure_blob_path: Optional[str] = None  # Azure blob path (e.g., user_id/dataset_id/file.csv)
+    azure_dataset_url: Optional[str] = None  # DEPRECATED: Legacy field for backward compatibility
     uploaded_at: datetime = Field(default_factory=datetime.utcnow)
-    source: Optional[str] = None
+    source: Optional[str] = None  # "upload", "kaggle", "huggingface"
     kaggle_ref: Optional[str] = None
     huggingface_dataset_id: Optional[str] = None
     huggingface_url: Optional[str] = None
-    download_path: Optional[str] = None
-    schema: Optional[List[Any]] = Field(default=None)
-    sample_data: Optional[List[Any]] = Field(default=None)
-    target_column: Optional[str] = Field(default=None)
-    csv_content: Optional[str] = Field(default=None)  # Store full CSV data for production
+    target_column: Optional[str] = Field(default=None)  # Metadata only
 
     class Config:
         populate_by_name = True

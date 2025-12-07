@@ -26,6 +26,7 @@ export function ChatInput({
   };
 
   const handleSend = () => {
+    debugger
     if (message.trim() || file) {
       onSend(message.trim(), file || undefined);
       setMessage("");
