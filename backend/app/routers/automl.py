@@ -21,7 +21,13 @@ async def event_generator(dataset_id: str, chat_id: str) -> AsyncGenerator[str, 
         """Format SSE event"""
         return f"data: {json.dumps(data)}\n\n"
 
+    def keepalive() -> str:
+        """Send keepalive comment to prevent connection timeout"""
+        return ": keepalive\n\n"
+
     try:
+        # Send initial keepalive
+        yield keepalive()
         # Get dataset
         dataset = await mongodb.database.datasets.find_one({"_id": ObjectId(dataset_id)})
         if not dataset:
@@ -43,10 +49,25 @@ async def event_generator(dataset_id: str, chat_id: str) -> AsyncGenerator[str, 
                 yield event({"type": "status", "message": "☁️ Loading data from Azure Blob Storage..."})
                 # Use download_dataset which accepts both blob path and full URL
                 csv_bytes = azure_storage_service.download_dataset(blob_path)
-                csv_content = csv_bytes.decode('utf-8')
+
+                # Try multiple encodings to handle various file formats
+                csv_content = None
+                for encoding in ['utf-8', 'latin-1', 'iso-8859-1', 'cp1252']:
+                    try:
+                        csv_content = csv_bytes.decode(encoding)
+                        break
+                    except (UnicodeDecodeError, AttributeError):
+                        continue
+
+                # If all encodings fail, use utf-8 with error replacement
+                if csv_content is None:
+                    csv_content = csv_bytes.decode('utf-8', errors='replace')
+
                 yield event({"type": "status", "message": "✓ Data loaded from Azure Blob Storage"})
             else:
-                raise HTTPException(status_code=503, detail="Azure Blob Storage not configured.")
+                # Don't raise HTTPException in generator - yield error instead
+                yield event({"type": "error", "message": "Azure Blob Storage not configured."})
+                return
         except Exception as azure_error:
             yield event({"type": "error", "message": f"Failed to load dataset from Azure: {str(azure_error)}"})
             return
@@ -54,11 +75,25 @@ async def event_generator(dataset_id: str, chat_id: str) -> AsyncGenerator[str, 
         # Parse CSV content into DataFrame
         import io
         try:
+            # Validate csv_content is not None
+            if csv_content is None:
+                yield event({"type": "error", "message": "Failed to decode CSV file. File may be corrupted or in an unsupported format."})
+                return
+
+            yield event({"type": "status", "message": "📄 Parsing CSV data..."})
             df = pd.read_csv(io.StringIO(csv_content), encoding='utf-8')
         except UnicodeDecodeError:
-            df = pd.read_csv(io.StringIO(csv_content), encoding='latin-1')
-        except Exception:
-            df = pd.read_csv(io.StringIO(csv_content), encoding='utf-8', errors='ignore')
+            try:
+                df = pd.read_csv(io.StringIO(csv_content), encoding='latin-1')
+            except Exception as e:
+                yield event({"type": "error", "message": f"Failed to parse CSV with latin-1 encoding: {str(e)}"})
+                return
+        except Exception as e:
+            try:
+                df = pd.read_csv(io.StringIO(csv_content), encoding='utf-8', errors='ignore')
+            except Exception as final_error:
+                yield event({"type": "error", "message": f"Failed to parse CSV file: {str(final_error)}"})
+                return
 
         yield event({"type": "status", "message": "🚀 Starting AutoML training..."})
         await asyncio.sleep(1)
@@ -185,6 +220,10 @@ async def event_generator(dataset_id: str, chat_id: str) -> AsyncGenerator[str, 
         # Determine if classification or regression
         is_classification = df[target_column].dtype == 'object' or df[target_column].nunique() < 20
 
+        # Initialize predictor variable
+        predictor = None
+        model_temp_path = None
+
         if use_autogluon and TabularPredictor:
             # REAL AutoML training
             try:
@@ -192,6 +231,7 @@ async def event_generator(dataset_id: str, chat_id: str) -> AsyncGenerator[str, 
                 import tempfile
                 temp_dir = tempfile.mkdtemp(prefix=f"model_{dataset_id}_")
                 model_path = temp_dir
+                model_temp_path = temp_dir  # Store for later upload
                 print(f"[AUTOML] Using temporary directory: {model_path}")
 
                 yield event({"type": "status", "message": "🚀 Starting AutoML training with real ML models..."})
@@ -217,6 +257,8 @@ async def event_generator(dataset_id: str, chat_id: str) -> AsyncGenerator[str, 
                     return predictor
 
                 yield event({"type": "status", "message": "⚙️ Training in progress (this won't block the server)..."})
+
+                # Train the model (simplified - no complex keepalive for now)
                 predictor = await loop.run_in_executor(None, train_model)
 
                 yield event({"type": "status", "message": "📊 Training complete! Evaluating models..."})
@@ -358,52 +400,77 @@ async def event_generator(dataset_id: str, chat_id: str) -> AsyncGenerator[str, 
         }
 
         # Upload model to Azure Blob Storage if real model was trained
-        if use_autogluon and predictor:
+        if use_autogluon and predictor and model_temp_path:
             try:
                 from app.utils.azure_storage import azure_storage_service
                 from app.core.config import settings
                 import shutil
-                
+                import os
+
+                print(f"[AUTOML] Checking Azure upload conditions:")
+                print(f"  - Azure configured: {azure_storage_service.is_configured}")
+                print(f"  - Azure enabled: {getattr(settings, 'AZURE_STORAGE_ENABLED', False)}")
+                print(f"  - Model path: {model_temp_path}")
+                print(f"  - Predictor exists: {predictor is not None}")
+
                 if azure_storage_service.is_configured and settings.AZURE_STORAGE_ENABLED:
                     yield event({"type": "status", "message": "☁️ Uploading model to Azure Blob Storage..."})
 
                     # Zip the model directory
-                    # predictor.path is the temp directory where model was saved
-                    model_temp_path = predictor.path
+                    # Use the stored model_temp_path (don't overwrite it)
                     zip_base_name = f"{model_temp_path}_archive"
+                    print(f"[AUTOML] Creating zip archive: {zip_base_name}")
                     zip_path = shutil.make_archive(zip_base_name, 'zip', model_temp_path)
+                    print(f"[AUTOML] Zip created: {zip_path}")
 
                     # Read zip file
                     with open(zip_path, 'rb') as f:
                         model_bytes = f.read()
 
+                    print(f"[AUTOML] Zip file size: {len(model_bytes)} bytes")
+
                     # Upload using helper method
+                    print(f"[AUTOML] Uploading to Azure...")
+                    print(f"  - User ID: {dataset['user_id']}")
+                    print(f"  - Model ID (using dataset_id): {dataset_id}")
+
                     azure_blob_path = azure_storage_service.upload_model(
                         user_id=str(dataset["user_id"]),
-                        model_id=str(dataset_id), # Using dataset_id as model grouping for now, or generate new ID
+                        model_id=str(dataset_id),
                         model_bytes=model_bytes,
                         version="v1"
                     )
 
+                    print(f"[AUTOML] ✅ Upload successful! Blob path: {azure_blob_path}")
+
                     model_doc["azure_blob_path"] = azure_blob_path
-                    yield event({"type": "status", "message": "✓ Model uploaded to Azure Blob Storage"})
-                    
+                    yield event({"type": "status", "message": f"✓ Model uploaded to Azure: {azure_blob_path}"})
+
                     # Cleanup temp files
                     try:
                         shutil.rmtree(model_temp_path)
                         os.remove(zip_path)
-                        print(f"[AUTOML] Cleaned up temp model files: {model_temp_path}")
+                        print(f"[AUTOML] ✅ Cleaned up temp model files: {model_temp_path}")
                     except Exception as cleanup_error:
-                        print(f"[AUTOML] Warning: Failed to cleanup temp files: {cleanup_error}")
-                        
+                        print(f"[AUTOML] ⚠️ Warning: Failed to cleanup temp files: {cleanup_error}")
+
                 else:
+                    print(f"[AUTOML] ❌ Azure not configured - Model not persisted")
                     yield event({"type": "status", "message": "⚠️ Azure not configured - Model not persisted"})
-                    
+
             except Exception as e:
+                import traceback
                 error_msg = f"Failed to upload model to Azure: {str(e)}"
-                print(f"[AUTOML] {error_msg}")
+                print(f"[AUTOML] ❌ {error_msg}")
+                print(f"[AUTOML] Full traceback:")
+                print(traceback.format_exc())
                 yield event({"type": "error", "message": error_msg})
                 # Don't fail the whole process, just log error
+        else:
+            print(f"[AUTOML] Skipping Azure upload:")
+            print(f"  - use_autogluon: {use_autogluon}")
+            print(f"  - predictor exists: {predictor is not None}")
+            print(f"  - model_temp_path: {model_temp_path}")
 
 
 
@@ -432,15 +499,27 @@ async def event_generator(dataset_id: str, chat_id: str) -> AsyncGenerator[str, 
         })
 
     except Exception as e:
+        import traceback
+        import sys
+        error_details = traceback.format_exc()
+        print(f"[AUTOML ERROR] Full traceback:")
+        print(error_details)
+        print(f"[AUTOML ERROR] Exception type: {type(e).__name__}")
+        print(f"[AUTOML ERROR] Exception message: {str(e)}")
+        sys.stdout.flush()
+
         error_message = f"❌ Training failed: {str(e)}"
         yield event({"type": "error", "message": error_message})
 
-        await mongodb.database.messages.insert_one({
-            "chat_id": ObjectId(chat_id),
-            "role": "assistant",
-            "content": error_message,
-            "timestamp": datetime.utcnow()
-        })
+        try:
+            await mongodb.database.messages.insert_one({
+                "chat_id": ObjectId(chat_id),
+                "role": "assistant",
+                "content": error_message,
+                "timestamp": datetime.utcnow()
+            })
+        except Exception as db_error:
+            print(f"[AUTOML ERROR] Failed to save error message to DB: {db_error}")
 
 
 @router.post("/train/{dataset_id}")

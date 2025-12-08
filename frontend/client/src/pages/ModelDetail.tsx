@@ -122,12 +122,24 @@ export default function ModelDetail() {
     try {
       setPredicting(true);
       const inputData = JSON.parse(testInput);
+      console.log("🔮 Running prediction with input:", inputData);
+
       const result = await predictWithModel(model._id, inputData);
+      console.log("✅ Prediction result:", result);
       setPrediction(result);
 
+      // Show different message based on whether real model was used
+      const isRealModel = result.uses_real_model && !result.simulation;
+      const fromCache = result.from_cache;
+
       toast({
-        title: "Prediction Complete",
-        description: "Model inference completed successfully",
+        title: isRealModel ? "✅ Real Model Prediction" : "⚠️ Simulated Prediction",
+        description: isRealModel
+          ? fromCache
+            ? "Using cached model from Azure (fast!)"
+            : "Loaded model from Azure and made prediction"
+          : "This model was not trained with AutoML. Please retrain to get real predictions.",
+        variant: isRealModel ? "default" : "destructive",
       });
     } catch (error) {
       console.error("Failed to test model:", error);

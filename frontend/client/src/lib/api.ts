@@ -13,6 +13,15 @@ function getAuthHeaders(): HeadersInit {
   return headers;
 }
 
+// Global handler for 401 errors
+function handleUnauthorized(response: Response) {
+  if (response.status === 401) {
+    console.warn("[AUTH] Token expired or invalid, redirecting to login...");
+    localStorage.removeItem("token");
+    window.location.href = "/login?message=Session expired. Please log in again.";
+  }
+}
+
 export const checkBackendHealth = async (): Promise<boolean> => {
   try {
     const controller = new AbortController();
@@ -35,6 +44,7 @@ export const getApiKeys = async () => {
   const response = await fetch(`${BASE_URL}/api/apikeys`, {
     headers: getAuthHeaders()
   });
+  handleUnauthorized(response);
   if (!response.ok) {
     throw new Error("Failed to fetch API keys");
   }
@@ -116,6 +126,9 @@ export const predictWithModel = async (modelId: string, inputData: any) => {
     headers: getAuthHeaders(),
     body: JSON.stringify(inputData),
   });
+
+  handleUnauthorized(response);
+
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: "Failed to run prediction" }));
     throw new Error(error.detail || "Failed to run prediction");

@@ -25,7 +25,7 @@ class EmailService:
         self.smtp_username = getattr(settings, 'SMTP_USERNAME', None)
         self.smtp_password = getattr(settings, 'SMTP_PASSWORD', None)
         self.sender_email = getattr(settings, 'SENDER_EMAIL', self.smtp_username)
-        self.sender_name = getattr(settings, 'SENDER_NAME', 'Smart ML Assistant')
+        self.sender_name = getattr(settings, 'SENDER_NAME', 'AutoML')
 
     def _send_smtp_email(self, to_email: str, subject: str, html_body: str, text_body: str) -> bool:
         """Send email via SMTP"""
@@ -115,7 +115,7 @@ class EmailService:
                 </div>
                 <div class="content">
                     <p>Hello,</p>
-                    <p>You've requested a verification code for your Smart ML Assistant account. Use the code below to proceed:</p>
+                    <p>You've requested a verification code for your AutoML account. Use the code below to proceed:</p>
 
                     <div class="otp-box">
                         <div class="otp-code">{otp}</div>
@@ -130,7 +130,7 @@ class EmailService:
                     </div>
                 </div>
                 <div class="footer">
-                    <p>&copy; 2025 Smart ML Assistant. All rights reserved.</p>
+                    <p>&copy; 2025 AutoML. All rights reserved.</p>
                     <p>This is an automated message, please do not reply.</p>
                 </div>
             </div>
@@ -143,7 +143,7 @@ class EmailService:
 
 Hello,
 
-You've requested a verification code for your Smart ML Assistant account.
+You've requested a verification code for your AutoML account.
 
 Your verification code is: {otp}
 
@@ -154,7 +154,7 @@ If you didn't request this code, please ignore this email.
 Never share this code with anyone. Our team will never ask for your verification code.
 
 ---
-Smart ML Assistant Team
+AutoML Team
 This is an automated message, please do not reply.
         """
 
@@ -244,7 +244,7 @@ This is an automated message, please do not reply.
 
     async def send_welcome_email(self, email: str, name: str) -> bool:
         """Send welcome email after successful registration"""
-        subject = "Welcome to Smart ML Assistant!"
+        subject = "Welcome to AutoML!"
 
         html_body = f"""
         <!DOCTYPE html>
@@ -264,15 +264,15 @@ This is an automated message, please do not reply.
         <body>
             <div class="container">
                 <div class="header">
-                    <h1>Welcome to Smart ML Assistant! 🎉</h1>
+                    <h1>Welcome to AutoML! 🎉</h1>
                 </div>
                 <div class="content">
                     <p>Hi {name},</p>
-                    <p>Thank you for joining Smart ML Assistant! We're excited to have you on board.</p>
+                    <p>Thank you for joining AutoML! We're excited to have you on board.</p>
 
                     <div class="features">
-                        <h3>What you can do with Smart ML Assistant:</h3>
-                        <div class="feature-item">Train custom ML models with AutoML</div>
+                        <h3>What you can do with AutoML:</h3>
+                        <div class="feature-item">Train custom ML models with automated machine learning</div>
                         <div class="feature-item">Access datasets from Kaggle and HuggingFace</div>
                         <div class="feature-item">Deploy models with direct API access</div>
                         <div class="feature-item">Use pre-built AI models for various tasks</div>
@@ -286,7 +286,7 @@ This is an automated message, please do not reply.
                     <p>If you have any questions, feel free to reach out to our support team.</p>
 
                     <p>Happy modeling!</p>
-                    <p><strong>The Smart ML Assistant Team</strong></p>
+                    <p><strong>The AutoML Team</strong></p>
                 </div>
             </div>
         </body>
@@ -294,14 +294,14 @@ This is an automated message, please do not reply.
         """
 
         text_body = f"""
-Welcome to Smart ML Assistant!
+Welcome to AutoML!
 
 Hi {name},
 
-Thank you for joining Smart ML Assistant! We're excited to have you on board.
+Thank you for joining AutoML! We're excited to have you on board.
 
-What you can do with Smart ML Assistant:
-✓ Train custom ML models with AutoML
+What you can do with AutoML:
+✓ Train custom ML models with automated machine learning
 ✓ Access datasets from Kaggle and HuggingFace
 ✓ Deploy models with direct API access
 ✓ Use pre-built AI models for various tasks
@@ -312,7 +312,7 @@ Get started now: {settings.FRONTEND_URL}
 If you have any questions, feel free to reach out to our support team.
 
 Happy modeling!
-The Smart ML Assistant Team
+The AutoML Team
         """
 
         return self.send_email(email, subject, html_body, text_body)

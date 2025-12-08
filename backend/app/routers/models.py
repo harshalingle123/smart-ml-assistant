@@ -254,9 +254,14 @@ async def predict_with_model(
 ):
     """
     Make predictions using a trained model.
-    In production, this would load the actual model and run inference.
-    For now, returns a simulated prediction.
+    Loads real AutoML model from Azure if available, otherwise uses simulation.
     """
+    print(f"\n{'='*80}")
+    print(f"[PREDICT] NEW PREDICTION REQUEST")
+    print(f"[PREDICT] Model ID: {model_id}")
+    print(f"[PREDICT] Input data: {input_data}")
+    print(f"{'='*80}\n")
+
     model = await mongodb.database["models"].find_one(
         {"_id": ObjectId(model_id), "user_id": current_user.id}
     )
@@ -278,6 +283,13 @@ async def predict_with_model(
 
     # Support both new blob_path and legacy azure_model_url
     blob_path = model.get("azure_blob_path") or model.get("azure_model_url")
+
+    print(f"[PREDICT] Model info:")
+    print(f"  - Task type: {task_type}")
+    print(f"  - uses_real_model: {model.get('uses_real_model')}")
+    print(f"  - blob_path: {blob_path}")
+    print(f"  - base_model: {model.get('base_model')}")
+
     if model.get("uses_real_model") and blob_path:
         # Load and use REAL AutoML model from Azure (with caching)
         try:
@@ -359,24 +371,41 @@ async def predict_with_model(
                             "upper": prediction_float + margin
                         }
 
-                    print(f"[PREDICT] Prediction completed successfully")
+                    print(f"[PREDICT] ✅ Prediction completed successfully")
+                    print(f"[PREDICT] Result: {result}")
                     return result
 
                 except Exception as e:
-                    print(f"[PREDICT] Error during prediction: {str(e)}")
+                    import traceback
+                    print(f"[PREDICT] ❌ Error during prediction:")
+                    print(traceback.format_exc())
                     raise
 
+            print(f"[PREDICT] Running prediction in executor...")
             loop = asyncio.get_event_loop()
             prediction_result = await loop.run_in_executor(None, make_prediction)
 
+            print(f"[PREDICT] ✅ Real model prediction complete!")
+            print(f"[PREDICT] Final result: {prediction_result}")
             return JSONResponse(content=prediction_result)
 
         except Exception as e:
-            # If real model loading fails, fall back to simulation
-            print(f"Error loading real model: {str(e)}")
-            # Continue to simulation below
+            # If real model loading fails, show detailed error to user
+            import traceback
+            error_details = traceback.format_exc()
+            print(f"[PREDICT ERROR] Failed to load/use real model:")
+            print(error_details)
 
-    # SIMULATION MODE (fallback when no real model available)
+            # Return error instead of silently falling back to simulation
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to load real model for prediction: {str(e)}. Check backend logs for details."
+            )
+
+    # SIMULATION MODE (only used when model explicitly doesn't have a real model)
+    print(f"[PREDICT] Using SIMULATION mode for model {model_id}")
+    print(f"[PREDICT] Model has uses_real_model={model.get('uses_real_model')}, blob_path={blob_path}")
+
     if task_type == "classification":
         prediction_result = {
             "model_id": str(model["_id"]),
@@ -389,7 +418,8 @@ async def predict_with_model(
             },
             "input_data": input_data,
             "timestamp": datetime.utcnow().isoformat(),
-            "uses_real_model": False
+            "uses_real_model": False,
+            "simulation": True
         }
     else:
         prediction_result = {
@@ -402,7 +432,8 @@ async def predict_with_model(
             },
             "input_data": input_data,
             "timestamp": datetime.utcnow().isoformat(),
-            "uses_real_model": False
+            "uses_real_model": False,
+            "simulation": True
         }
 
     return JSONResponse(content=prediction_result)
@@ -495,9 +526,22 @@ async def get_sample_data(
         print(f"   ☁️ Loading data from Azure: {blob_path}")
         # Use download_dataset which supports both blob paths and URLs
         csv_bytes = azure_storage_service.download_dataset(blob_path)
-        
-        csv_content = csv_bytes.decode('utf-8')
-        
+
+        # Try multiple encodings to handle various file formats
+        csv_content = None
+        for encoding in ['utf-8', 'latin-1', 'iso-8859-1', 'cp1252']:
+            try:
+                csv_content = csv_bytes.decode(encoding)
+                print(f"   ✅ Successfully decoded with {encoding}")
+                break
+            except (UnicodeDecodeError, AttributeError):
+                continue
+
+        # If all encodings fail, use utf-8 with error replacement
+        if csv_content is None:
+            csv_content = csv_bytes.decode('utf-8', errors='replace')
+            print(f"   ⚠️ Decoded with utf-8 error replacement")
+
         # Read CSV with pandas
         try:
             df = pd.read_csv(io.StringIO(csv_content), nrows=100, encoding='utf-8')

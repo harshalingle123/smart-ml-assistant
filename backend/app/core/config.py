@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     SMTP_USERNAME: Optional[str] = None
     SMTP_PASSWORD: Optional[str] = None
     SENDER_EMAIL: Optional[str] = None
-    SENDER_NAME: str = "Smart ML Assistant"
+    SENDER_NAME: str = "AutoML"
 
     # Google OAuth
     GOOGLE_CLIENT_ID: Optional[str] = None
