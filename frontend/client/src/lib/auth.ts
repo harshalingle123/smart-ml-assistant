@@ -14,6 +14,18 @@ interface RegisterData {
   password: string;
 }
 
+interface SendOTPData {
+  email: string;
+  purpose?: string;
+}
+
+interface RegisterWithOTPData {
+  email: string;
+  name: string;
+  password: string;
+  otp: string;
+}
+
 export const login = async (credentials: LoginCredentials): Promise<Token> => {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 10000);
@@ -45,7 +57,24 @@ export const login = async (credentials: LoginCredentials): Promise<Token> => {
   }
 };
 
-export const register = async (data: RegisterData): Promise<User> => {
+export const sendOTP = async (data: SendOTPData): Promise<{ message: string; email: string; expires_in: number }> => {
+  const response = await fetch(`${BASE_URL}/api/auth/send-otp`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ email: data.email, purpose: data.purpose || "signup" }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: "Failed to send OTP" }));
+    throw new Error(error.detail || "Failed to send OTP");
+  }
+
+  return response.json();
+};
+
+export const registerWithOTP = async (data: RegisterWithOTPData): Promise<User> => {
   const response = await fetch(`${BASE_URL}/api/auth/register`, {
     method: "POST",
     headers: {
@@ -56,6 +85,40 @@ export const register = async (data: RegisterData): Promise<User> => {
 
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: "Failed to register" }));
+
+    // Handle validation errors with detailed messages
+    if (error.detail && Array.isArray(error.detail)) {
+      const errorMessages = error.detail.map((err: any) => err.msg || err.message).join(", ");
+      throw new Error(errorMessages);
+    }
+
+    throw new Error(error.detail || "Failed to register");
+  }
+
+  return response.json();
+};
+
+export const register = async (data: RegisterData): Promise<User> => {
+  // Deprecated: Use registerWithOTP for OTP flow
+  // Use direct registration for development/testing
+  // For production OTP flow, use: /api/auth/send-otp then /api/auth/register
+  const response = await fetch(`${BASE_URL}/api/auth/register-direct`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: "Failed to register" }));
+
+    // Handle validation errors with detailed messages
+    if (error.detail && Array.isArray(error.detail)) {
+      const errorMessages = error.detail.map((err: any) => err.msg || err.message).join(", ");
+      throw new Error(errorMessages);
+    }
+
     throw new Error(error.detail || "Failed to register");
   }
 
@@ -106,4 +169,42 @@ export const googleLogin = async (token: string): Promise<Token> => {
     }
     throw error;
   }
+};
+
+export const requestPasswordReset = async (email: string): Promise<{ message: string; email: string }> => {
+  const response = await fetch(`${BASE_URL}/api/auth/password-reset/request`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ email }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: "Failed to request password reset" }));
+    throw new Error(error.detail || "Failed to request password reset");
+  }
+
+  return response.json();
+};
+
+export const completePasswordReset = async (data: {
+  email: string;
+  otp: string;
+  new_password: string;
+}): Promise<{ message: string }> => {
+  const response = await fetch(`${BASE_URL}/api/auth/password-reset/complete`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: "Failed to reset password" }));
+    throw new Error(error.detail || "Failed to reset password");
+  }
+
+  return response.json();
 };

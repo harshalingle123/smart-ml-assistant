@@ -21,6 +21,7 @@ import NotFound from "@/pages/not-found";
 import Settings from "@/pages/Settings";
 import Login from "@/pages/Login";
 import Register from "@/pages/Register";
+import ForgotPassword from "@/pages/ForgotPassword";
 
 function ProtectedLayout() {
   const style = {
@@ -68,6 +69,7 @@ export default function App() {
             <Switch>
               <Route path="/login" component={Login} />
               <Route path="/register" component={Register} />
+              <Route path="/forgot-password" component={ForgotPassword} />
               <Route>
                 <ProtectedLayout />
               </Route>

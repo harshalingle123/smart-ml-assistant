@@ -40,6 +40,18 @@ class User(BaseModel):
     datasets_count: int = Field(default=0)
     billing_cycle: Optional[str] = None
 
+    # Authentication & Verification Fields
+    email_verified: bool = Field(default=False)
+    auth_provider: str = Field(default="email")  # "email", "google", "github", etc.
+    oauth_id: Optional[str] = None  # Google ID, GitHub ID, etc.
+    account_status: str = Field(default="pending")  # "pending", "active", "suspended", "locked"
+    failed_login_attempts: int = Field(default=0)
+    last_login_attempt: Optional[datetime] = None
+    account_locked_until: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+    last_login_at: Optional[datetime] = None
+
     class Config:
         populate_by_name = True
         arbitrary_types_allowed = True

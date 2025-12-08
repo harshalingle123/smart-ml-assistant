@@ -32,6 +32,17 @@ class Settings(BaseSettings):
             self.MAX_UPLOAD_SIZE = 100 * 1024 * 1024  # 100 MB
             self.MAX_UPLOAD_SIZE_MB = 100
 
+    # Frontend URL (for email links)
+    FRONTEND_URL: str = "http://localhost:5173"
+
+    # Email Service Configuration (for OTP verification)
+    SMTP_SERVER: Optional[str] = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: Optional[str] = None
+    SMTP_PASSWORD: Optional[str] = None
+    SENDER_EMAIL: Optional[str] = None
+    SENDER_NAME: str = "Smart ML Assistant"
+
     # Google OAuth
     GOOGLE_CLIENT_ID: Optional[str] = None
     GOOGLE_CLIENT_SECRET: Optional[str] = None

@@ -151,9 +151,9 @@ export default function Login() {
                 <p className="mt-2 text-sm text-red-400">{form.formState.errors.password.message}</p>
               )}
               <div className="text-right mt-2">
-                <a href="#" className="text-[13px] text-[#4169ff] hover:opacity-80 transition-opacity">
+                <Link href="/forgot-password" className="text-[13px] text-[#4169ff] hover:underline transition-colors">
                   Forgot password?
-                </a>
+                </Link>
               </div>
             </div>
 
