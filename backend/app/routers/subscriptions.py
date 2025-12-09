@@ -97,6 +97,8 @@ async def create_order(
     Create a Razorpay order for subscription payment
     Supports UPI, Cards, NetBanking, Wallets
     """
+    logger.info(f"[CREATE ORDER] Request from user {current_user.id} for plan: {order_request.plan}")
+
     if order_request.plan not in ["pro", "advanced"]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -104,15 +106,20 @@ async def create_order(
         )
 
     try:
+        logger.info(f"[CREATE ORDER] Calling payment_service.create_order...")
         order_details = await payment_service.create_order(
             user_id=current_user.id,
             plan_name=order_request.plan
         )
+        logger.info(f"[CREATE ORDER] Success! Order ID: {order_details['order_id']}")
 
         return CreateOrderResponse(**order_details)
 
     except Exception as e:
-        logger.error(f"Failed to create order for user {current_user.id}: {str(e)}")
+        import traceback
+        logger.error(f"[CREATE ORDER] Failed to create order for user {current_user.id}")
+        logger.error(f"[CREATE ORDER] Error: {str(e)}")
+        logger.error(f"[CREATE ORDER] Traceback:\n{traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e)
