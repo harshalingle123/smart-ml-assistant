@@ -530,6 +530,10 @@ async def train_model(
 ):
     """Start AutoML training with SSE progress updates"""
 
+    # Check model training limit (subscription-based)
+    from app.middleware.subscription_middleware import subscription_limits
+    await subscription_limits.check_model_training_limit(current_user.id)
+
     # Validate dataset exists and belongs to user
     try:
         dataset = await mongodb.database.datasets.find_one({

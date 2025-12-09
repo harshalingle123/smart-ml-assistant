@@ -34,11 +34,17 @@ class User(BaseModel):
     email: EmailStr = Field(...)
     name: str = Field(...)
     password: str = Field(...)
-    current_plan: str = Field(default="free")
-    queries_used: int = Field(default=0)
-    fine_tune_jobs: int = Field(default=0)
-    datasets_count: int = Field(default=0)
-    billing_cycle: Optional[str] = None
+
+    # Subscription fields
+    subscription_id: Optional[PyObjectId] = None  # Reference to subscriptions collection
+    current_plan: str = Field(default="free")  # Cached for quick access: "free" | "pro" | "advanced"
+    queries_used: int = Field(default=0)  # DEPRECATED: Use UsageRecord instead
+    fine_tune_jobs: int = Field(default=0)  # DEPRECATED: Use UsageRecord instead
+    datasets_count: int = Field(default=0)  # DEPRECATED: Use UsageRecord instead
+    billing_cycle: Optional[str] = None  # DEPRECATED: Use Subscription.period_start/end
+
+    # Admin & Roles
+    is_admin: bool = Field(default=False)  # Admin access for managing plans, promo codes, etc.
 
     # Authentication & Verification Fields
     email_verified: bool = Field(default=False)
@@ -300,6 +306,391 @@ class AlertConfig(BaseModel):
     enabled: bool = Field(default=True)
     last_triggered_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class Config:
+        populate_by_name = True
+        arbitrary_types_allowed = True
+        json_encoders = {ObjectId: str}
+
+
+class Subscription(BaseModel):
+    """User subscription details"""
+    id: PyObjectId = Field(default_factory=PyObjectId, alias="_id")
+    user_id: PyObjectId = Field(...)
+    plan: str = Field(...)  # "free" | "pro" | "advanced"
+    provider: str = Field(default="razorpay")  # "razorpay" | "stripe" | "manual"
+    status: str = Field(default="active")  # "active" | "canceled" | "past_due" | "expired"
+
+    # Razorpay specific fields
+    razorpay_subscription_id: Optional[str] = None
+    razorpay_customer_id: Optional[str] = None
+    razorpay_plan_id: Optional[str] = None
+
+    # Billing cycle
+    period_start: datetime = Field(default_factory=datetime.utcnow)
+    period_end: datetime = Field(...)
+    cancel_at_period_end: bool = Field(default=False)
+    canceled_at: Optional[datetime] = None
+
+    # Payment tracking
+    amount: float = Field(default=0.0)  # Amount in INR
+    currency: str = Field(default="INR")
+    last_payment_at: Optional[datetime] = None
+    next_billing_date: Optional[datetime] = None
+
+    # Metadata
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class Config:
+        populate_by_name = True
+        arbitrary_types_allowed = True
+        json_encoders = {ObjectId: str}
+
+
+class Plan(BaseModel):
+    """Subscription plan details - supports standard, custom, and enterprise plans"""
+    id: PyObjectId = Field(default_factory=PyObjectId, alias="_id")
+    plan: str = Field(...)  # "free" | "pro" | "advanced" | "custom_plan_slug"
+    name: str = Field(...)
+    description: Optional[str] = None
+
+    # Pricing
+    price_monthly: float = Field(default=0.0)  # Price in INR
+    currency: str = Field(default="INR")
+
+    # Limits
+    api_hits_per_month: int = Field(...)
+    model_generation_per_day: int = Field(...)
+    dataset_size_mb: int = Field(...)
+    azure_storage_gb: int = Field(...)
+    training_time_minutes_per_model: int = Field(...)
+    concurrent_trainings: int = Field(default=1)
+
+    # Features
+    features: List[str] = Field(default_factory=list)
+    priority_support: bool = Field(default=False)
+
+    # Razorpay plan ID
+    razorpay_plan_id: Optional[str] = None
+
+    # Custom Plan Fields (Admin-created plans)
+    is_custom: bool = Field(default=False)  # True if admin-created custom plan
+    created_by_admin_id: Optional[PyObjectId] = None  # Admin who created this plan
+    plan_type: str = Field(default="standard")  # "standard" | "custom" | "enterprise"
+
+    # Enterprise Custom Plans (Private plans)
+    is_private: bool = Field(default=False)  # True if visible only to specific users
+    allowed_user_ids: List[PyObjectId] = Field(default_factory=list)  # Users who can see this plan
+    contract_details: Optional[str] = None  # Custom contract terms for enterprise
+    billing_contact_email: Optional[str] = None  # Enterprise billing contact
+
+    # Display & Organization
+    display_order: int = Field(default=0)  # For sorting plans in UI (lower = higher priority)
+    is_archived: bool = Field(default=False)  # Soft delete for old plans
+    valid_from: Optional[datetime] = None  # When plan becomes available
+    valid_until: Optional[datetime] = None  # When plan expires (for limited-time offers)
+
+    # Metadata
+    tags: List[str] = Field(default_factory=list)  # ["enterprise", "startup", "student"]
+    internal_notes: Optional[str] = None  # Admin notes not visible to users
+
+    # Status
+    is_active: bool = Field(default=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class Config:
+        populate_by_name = True
+        arbitrary_types_allowed = True
+        json_encoders = {ObjectId: str}
+
+
+class UsageRecord(BaseModel):
+    """Track user usage for billing and limits"""
+    id: PyObjectId = Field(default_factory=PyObjectId, alias="_id")
+    user_id: PyObjectId = Field(...)
+    subscription_id: PyObjectId = Field(...)
+
+    # Usage counters (monthly reset)
+    api_hits_used: int = Field(default=0)
+    models_trained_today: int = Field(default=0)
+    azure_storage_used_mb: float = Field(default=0.0)
+
+    # Composite Limits (Base plan + Add-ons) - Cached for performance
+    composite_limits: Optional[dict] = None  # Calculated limits including add-ons
+    # Example: {
+    #   "api_hits_per_month": 15000,  # base 10000 + addon 5000
+    #   "azure_storage_gb": 15,        # base 10 + addon 5
+    #   "model_generation_per_day": 30 # base 25 + addon 5
+    # }
+    last_limits_recalculation: datetime = Field(default_factory=datetime.utcnow)  # TTL: 1 hour
+
+    # Tracking
+    billing_cycle_start: datetime = Field(default_factory=datetime.utcnow)
+    billing_cycle_end: datetime = Field(...)
+    last_reset_at: datetime = Field(default_factory=datetime.utcnow)
+    last_daily_reset_at: datetime = Field(default_factory=datetime.utcnow)
+
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class Config:
+        populate_by_name = True
+        arbitrary_types_allowed = True
+        json_encoders = {ObjectId: str}
+
+
+class Payment(BaseModel):
+    """Payment transaction record - supports subscriptions, add-ons, and promo codes"""
+    id: PyObjectId = Field(default_factory=PyObjectId, alias="_id")
+    user_id: PyObjectId = Field(...)
+    subscription_id: Optional[PyObjectId] = None
+
+    # Payment details
+    amount: float = Field(...)  # Final amount paid (after discount)
+    currency: str = Field(default="INR")
+    status: str = Field(...)  # "pending" | "success" | "failed" | "refunded"
+    payment_method: str = Field(...)  # "upi" | "card" | "netbanking" | "wallet"
+
+    # Razorpay details
+    razorpay_payment_id: Optional[str] = None
+    razorpay_order_id: Optional[str] = None
+    razorpay_signature: Optional[str] = None
+
+    # Promo Code Tracking
+    promo_code_id: Optional[PyObjectId] = None  # Reference to promo_codes collection
+    promo_code: Optional[str] = None  # Denormalized code for easy display
+    discount_applied: float = Field(default=0.0)  # Discount amount
+    original_amount: Optional[float] = None  # Amount before discount
+
+    # Add-on Tracking
+    addon_id: Optional[PyObjectId] = None  # If payment is for an add-on
+    payment_type: str = Field(default="subscription")  # "subscription" | "addon" | "renewal"
+
+    # Additional info
+    description: Optional[str] = None
+    failure_reason: Optional[str] = None
+    refund_amount: Optional[float] = None
+    refunded_at: Optional[datetime] = None
+
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class Config:
+        populate_by_name = True
+        arbitrary_types_allowed = True
+        json_encoders = {ObjectId: str}
+
+
+class Addon(BaseModel):
+    """Purchasable add-ons for subscription plans (e.g., extra storage, API boosts)"""
+    id: PyObjectId = Field(default_factory=PyObjectId, alias="_id")
+
+    # Basic Info
+    addon_slug: str = Field(...)  # "extra_storage_5gb", "api_boost_10k", "priority_support"
+    name: str = Field(...)  # "Extra 5GB Storage"
+    description: str = Field(...)  # Detailed description of what this add-on provides
+    category: str = Field(...)  # "storage" | "api_hits" | "training" | "support"
+
+    # Pricing
+    price_monthly: float = Field(...)
+    price_annual: Optional[float] = None  # Discounted annual price (if applicable)
+    currency: str = Field(default="INR")
+
+    # What it provides
+    quota_type: str = Field(...)  # "azure_storage_gb" | "api_hits_per_month" | "model_generation_per_day"
+    quota_amount: float = Field(...)  # How much it adds (e.g., 5 for 5GB)
+
+    # Availability
+    compatible_plans: List[str] = Field(default_factory=list)  # ["pro", "advanced"] or [] for all plans
+    max_quantity: int = Field(default=10)  # Max user can purchase (e.g., 10x storage addon)
+    is_active: bool = Field(default=True)
+
+    # Display
+    icon: Optional[str] = None  # Icon name for UI (e.g., "HardDrive", "Zap")
+    badge_text: Optional[str] = None  # "Most Popular", "Best Value", etc.
+    display_order: int = Field(default=0)  # For sorting in UI
+
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class Config:
+        populate_by_name = True
+        arbitrary_types_allowed = True
+        json_encoders = {ObjectId: str}
+
+
+class UserAddon(BaseModel):
+    """User's active add-on subscriptions"""
+    id: PyObjectId = Field(default_factory=PyObjectId, alias="_id")
+
+    # References
+    user_id: PyObjectId = Field(...)
+    subscription_id: PyObjectId = Field(...)  # Main subscription this is attached to
+    addon_id: PyObjectId = Field(...)
+
+    # Purchase Details
+    quantity: int = Field(default=1)  # How many of this addon they bought
+    amount_paid: float = Field(...)  # Amount paid for this add-on
+    currency: str = Field(default="INR")
+
+    # Razorpay
+    razorpay_payment_id: Optional[str] = None
+    razorpay_order_id: Optional[str] = None
+
+    # Status
+    status: str = Field(default="active")  # "active" | "canceled" | "expired"
+    period_start: datetime = Field(default_factory=datetime.utcnow)
+    period_end: datetime = Field(...)  # Typically 30 days from start
+    auto_renew: bool = Field(default=True)  # Auto-renew at period end
+    canceled_at: Optional[datetime] = None
+
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class Config:
+        populate_by_name = True
+        arbitrary_types_allowed = True
+        json_encoders = {ObjectId: str}
+
+
+class PromoCode(BaseModel):
+    """Promotional discount codes for subscriptions and add-ons"""
+    id: PyObjectId = Field(default_factory=PyObjectId, alias="_id")
+
+    # Code Details
+    code: str = Field(...)  # "STUDENT50", "BLACKFRIDAY2025", etc. (stored uppercase)
+    description: str = Field(...)  # "50% off for students"
+
+    # Discount
+    discount_type: str = Field(...)  # "percentage" | "fixed_amount"
+    discount_value: float = Field(...)  # 50 for 50% or 100 for ₹100 off
+    max_discount_amount: Optional[float] = None  # Cap for percentage discounts (e.g., max ₹500 off)
+
+    # Applicability
+    applicable_plans: List[str] = Field(default_factory=list)  # [] = all plans, ["pro", "advanced"] = specific
+    applicable_addons: List[str] = Field(default_factory=list)  # [] = all addons, ["addon_slug"] = specific
+    first_payment_only: bool = Field(default=False)  # True = only applies to first payment
+
+    # Usage Limits
+    usage_limit: Optional[int] = None  # Total times code can be used (None = unlimited)
+    usage_count: int = Field(default=0)  # Times used so far
+    per_user_limit: int = Field(default=1)  # Times each user can use (typically 1)
+
+    # Validity
+    valid_from: datetime = Field(default_factory=datetime.utcnow)
+    valid_until: Optional[datetime] = None  # None = no expiry
+    is_active: bool = Field(default=True)
+
+    # Metadata
+    created_by_admin_id: Optional[PyObjectId] = None  # Admin who created this code
+    campaign_name: Optional[str] = None  # "Black Friday 2025", "Student Discount"
+    internal_notes: Optional[str] = None  # Admin notes
+
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class Config:
+        populate_by_name = True
+        arbitrary_types_allowed = True
+        json_encoders = {ObjectId: str}
+
+
+class PromoCodeUsage(BaseModel):
+    """Track promo code usage by users for analytics and enforcement"""
+    id: PyObjectId = Field(default_factory=PyObjectId, alias="_id")
+
+    promo_code_id: PyObjectId = Field(...)
+    code: str = Field(...)  # Denormalized for easy lookup
+    user_id: PyObjectId = Field(...)
+    subscription_id: Optional[PyObjectId] = None
+    payment_id: Optional[PyObjectId] = None
+
+    # Discount Applied
+    discount_amount: float = Field(...)  # Actual discount amount given
+    original_amount: float = Field(...)  # Original price before discount
+    final_amount: float = Field(...)  # Price after discount
+
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class Config:
+        populate_by_name = True
+        arbitrary_types_allowed = True
+        json_encoders = {ObjectId: str}
+
+
+class WebhookEvent(BaseModel):
+    """
+    Webhook event logging for Razorpay webhooks
+    Enables idempotent processing, retry logic, and audit trail
+    """
+    id: PyObjectId = Field(default_factory=PyObjectId, alias="_id")
+
+    # Event Identification (for idempotency)
+    event_id: str = Field(...)  # Razorpay event ID (e.g., "event_xxxx")
+    event_type: str = Field(...)  # "payment.captured", "payment.failed", "subscription.charged", etc.
+
+    # Payload
+    payload: dict = Field(...)  # Full webhook payload from Razorpay
+
+    # Processing Status
+    status: str = Field(default="pending")  # "pending" | "processing" | "processed" | "failed"
+    processing_attempts: int = Field(default=0)  # Number of times we tried to process this
+    max_retry_attempts: int = Field(default=3)  # Maximum retry attempts before giving up
+
+    # Timestamps
+    processed_at: Optional[datetime] = None  # When successfully processed
+    next_retry_at: Optional[datetime] = None  # When to retry if failed
+
+    # Error Tracking
+    error_message: Optional[str] = None  # Last error message if processing failed
+    error_stack: Optional[str] = None  # Full stack trace for debugging
+
+    # Metadata
+    source_ip: Optional[str] = None  # IP address of webhook sender (for security)
+    signature_valid: bool = Field(default=True)  # Was signature verification successful
+
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class Config:
+        populate_by_name = True
+        arbitrary_types_allowed = True
+        json_encoders = {ObjectId: str}
+
+
+class DunningAttempt(BaseModel):
+    """
+    Track payment retry attempts (dunning) for failed payments
+    Helps recover revenue from failed subscriptions
+    """
+    id: PyObjectId = Field(default_factory=PyObjectId, alias="_id")
+
+    # References
+    subscription_id: PyObjectId = Field(...)
+    user_id: PyObjectId = Field(...)
+    payment_id: Optional[str] = None  # Failed Razorpay payment ID
+
+    # Dunning Details
+    attempt_number: int = Field(default=1)  # 1st, 2nd, 3rd retry
+    status: str = Field(default="pending")  # "pending" | "attempted" | "success" | "failed" | "skipped"
+
+    # Scheduling
+    scheduled_at: datetime = Field(...)  # When this retry should happen
+    attempted_at: Optional[datetime] = None  # When we actually tried
+
+    # Result
+    result_status: Optional[str] = None  # "success" | "failed" | "card_declined" | "insufficient_funds"
+    error_message: Optional[str] = None
+    razorpay_payment_id: Optional[str] = None  # New payment ID if retry succeeded
+
+    # Communication
+    email_sent: bool = Field(default=False)  # Did we send reminder email
+    email_sent_at: Optional[datetime] = None
+
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
 
     class Config:
         populate_by_name = True

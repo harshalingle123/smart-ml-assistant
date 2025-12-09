@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from app.core.config import settings
 from app.middleware import LoggingMiddleware, RequestSizeLimitMiddleware
-from app.routers import auth, chats, messages, datasets, models, finetune, apikeys, kaggle, ml, prebuilt_models, deployments, training_jobs, direct_access, model_api, usage_dashboard, automl
+from app.routers import auth, chats, messages, datasets, models, finetune, apikeys, kaggle, ml, prebuilt_models, deployments, training_jobs, direct_access, model_api, usage_dashboard, automl, subscriptions, admin, addons
 from app.mongodb import mongodb
 from starlette.middleware.base import BaseHTTPMiddleware
 import asyncio
@@ -141,6 +141,9 @@ app.include_router(direct_access.router)
 app.include_router(model_api.router)
 app.include_router(usage_dashboard.router)
 app.include_router(automl.router)
+app.include_router(subscriptions.router)
+app.include_router(addons.router)
+app.include_router(admin.router)
 
 
 @app.on_event("startup")

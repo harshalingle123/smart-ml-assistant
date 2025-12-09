@@ -75,6 +75,11 @@ class Settings(BaseSettings):
     AZURE_MODELS_CONTAINER: str = "models"
     AZURE_STORAGE_ENABLED: bool = True  # Enable/disable Azure storage
 
+    # Razorpay Payment Gateway Configuration
+    RAZORPAY_KEY_ID: Optional[str] = None
+    RAZORPAY_KEY_SECRET: Optional[str] = None
+    RAZORPAY_WEBHOOK_SECRET: Optional[str] = None
+
     @property
     def cors_origins_list(self) -> List[str]:
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",")]

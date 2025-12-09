@@ -142,9 +142,15 @@ async def upload_dataset(
         print(f"[UPLOAD] Reading file contents...")
         contents = await file.read()
         file_size = len(contents)
+        file_size_mb = file_size / (1024 * 1024)
 
         print(f"[UPLOAD] ✓ File read successfully")
-        print(f"[UPLOAD] File size: {file_size} bytes ({file_size / (1024 * 1024):.2f} MB)")
+        print(f"[UPLOAD] File size: {file_size} bytes ({file_size_mb:.2f} MB)")
+
+        # Check subscription limits for dataset size
+        from app.middleware.subscription_middleware import subscription_limits
+        await subscription_limits.check_dataset_size_limit(current_user.id, file_size_mb)
+        await subscription_limits.check_storage_limit(current_user.id, file_size_mb)
 
         # Validate file size (max 500 MB by default)
         max_size = settings.MAX_UPLOAD_SIZE

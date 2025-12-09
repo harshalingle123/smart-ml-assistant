@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payment Confirmation</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background-color: #f5f5f5;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 600px;
+            margin: 40px auto;
+            background-color: #ffffff;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 40px 30px;
+            text-align: center;
+            color: #ffffff;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 28px;
+            font-weight: 600;
+        }
+        .checkmark {
+            width: 60px;
+            height: 60px;
+            margin: 20px auto;
+            background-color: rgba(255, 255, 255, 0.2);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 36px;
+        }
+        .content {
+            padding: 40px 30px;
+        }
+        .content p {
+            color: #374151;
+            margin: 0 0 15px 0;
+            font-size: 16px;
+        }
+        .content h2 {
+            color: #1f2937;
+            font-size: 20px;
+            margin: 30px 0 15px 0;
+        }
+        .info-box {
+            background-color: #f9fafb;
+            border-left: 4px solid #667eea;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        .info-row:last-child {
+            border-bottom: none;
+        }
+        .info-label {
+            color: #6b7280;
+            font-size: 14px;
+        }
+        .info-value {
+            color: #1f2937;
+            font-weight: 600;
+            font-size: 14px;
+        }
+        .button {
+            display: inline-block;
+            background-color: #667eea;
+            color: #ffffff !important;
+            text-decoration: none;
+            padding: 14px 32px;
+            border-radius: 6px;
+            font-weight: 600;
+            margin: 20px 0;
+            text-align: center;
+        }
+        .footer {
+            background-color: #f9fafb;
+            padding: 30px;
+            text-align: center;
+            color: #6b7280;
+            font-size: 14px;
+        }
+        .footer a {
+            color: #667eea;
+            text-decoration: none;
+        }
+        @media only screen and (max-width: 600px) {
+            .container {
+                margin: 20px auto;
+                border-radius: 0;
+            }
+            .content {
+                padding: 30px 20px;
+            }
+            .header {
+                padding: 30px 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="checkmark">✓</div>
+            <h1>Payment Confirmed!</h1>
+        </div>
+
+        <div class="content">
+            <p>Hi {{user_name}},</p>
+
+            <p>Thank you for your payment! Your subscription has been activated successfully.</p>
+
+            <div class="info-box">
+                <div class="info-row">
+                    <span class="info-label">Plan</span>
+                    <span class="info-value">{{plan_name}}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Amount Paid</span>
+                    <span class="info-value">{{amount}}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Payment ID</span>
+                    <span class="info-value">{{payment_id}}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Payment Date</span>
+                    <span class="info-value">{{payment_date}}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Next Billing Date</span>
+                    <span class="info-value">{{next_billing_date}}</span>
+                </div>
+            </div>
+
+            <h2>What's Next?</h2>
+            <p>Your upgraded features are now active! You can start using your enhanced limits immediately.</p>
+
+            <ul style="color: #374151; margin: 15px 0; padding-left: 20px;">
+                <li>Access your dashboard to view usage</li>
+                <li>Explore your new features and limits</li>
+                <li>Download your invoice from payment history</li>
+            </ul>
+
+            <center>
+                <a href="#" class="button">Go to Dashboard</a>
+            </center>
+
+            <p style="margin-top: 30px; font-size: 14px; color: #6b7280;">
+                If you have any questions about your subscription, feel free to contact our support team.
+            </p>
+        </div>
+
+        <div class="footer">
+            <p>© {{current_year}} Smart ML Assistant. All rights reserved.</p>
+            <p>
+                <a href="#">Manage Subscription</a> |
+                <a href="#">Contact Support</a> |
+                <a href="#">Privacy Policy</a>
+            </p>
+        </div>
+    </div>
+</body>
+</html>

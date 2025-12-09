@@ -29,6 +29,10 @@ async def predict_vader(
     prediction_request: PredictionRequest,
     api_key_record: dict = Depends(enforce_rate_limit)
 ):
+    # Track API hit for subscription limits
+    from app.middleware.subscription_middleware import subscription_limits
+    await subscription_limits.check_api_limit(api_key_record["user_id"])
+
     try:
         if not prediction_request.text or len(prediction_request.text) > 5000:
             raise HTTPException(
@@ -102,6 +106,10 @@ async def predict_vader_batch(
     batch_request: BatchPredictionRequest,
     api_key_record: dict = Depends(enforce_rate_limit)
 ):
+    # Track API hit for subscription limits
+    from app.middleware.subscription_middleware import subscription_limits
+    await subscription_limits.check_api_limit(api_key_record["user_id"])
+
     try:
         if not batch_request.texts or len(batch_request.texts) == 0:
             raise HTTPException(
@@ -189,6 +197,10 @@ async def predict_distilbert(
     prediction_request: PredictionRequest,
     api_key_record: dict = Depends(enforce_rate_limit)
 ):
+    # Track API hit for subscription limits
+    from app.middleware.subscription_middleware import subscription_limits
+    await subscription_limits.check_api_limit(api_key_record["user_id"])
+
     try:
         if not prediction_request.text or len(prediction_request.text) > 5000:
             raise HTTPException(
@@ -262,6 +274,10 @@ async def predict_roberta(
     prediction_request: PredictionRequest,
     api_key_record: dict = Depends(enforce_rate_limit)
 ):
+    # Track API hit for subscription limits
+    from app.middleware.subscription_middleware import subscription_limits
+    await subscription_limits.check_api_limit(api_key_record["user_id"])
+
     try:
         if not prediction_request.text or len(prediction_request.text) > 5000:
             raise HTTPException(

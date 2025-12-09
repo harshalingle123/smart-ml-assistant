@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payment Failed</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background-color: #f5f5f5;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 600px;
+            margin: 40px auto;
+            background-color: #ffffff;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+        .header {
+            background: linear-gradient(135deg, #f59e0b 0%, #ef4444 100%);
+            padding: 40px 30px;
+            text-align: center;
+            color: #ffffff;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 28px;
+            font-weight: 600;
+        }
+        .warning-icon {
+            width: 60px;
+            height: 60px;
+            margin: 20px auto;
+            background-color: rgba(255, 255, 255, 0.2);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 36px;
+        }
+        .content {
+            padding: 40px 30px;
+        }
+        .content p {
+            color: #374151;
+            margin: 0 0 15px 0;
+            font-size: 16px;
+        }
+        .alert-box {
+            background-color: #fef2f2;
+            border-left: 4px solid #ef4444;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .alert-title {
+            color: #991b1b;
+            font-weight: 600;
+            margin: 0 0 10px 0;
+            font-size: 16px;
+        }
+        .alert-text {
+            color: #7f1d1d;
+            margin: 0;
+            font-size: 14px;
+        }
+        .info-box {
+            background-color: #f9fafb;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 4px;
+            border: 1px solid #e5e7eb;
+        }
+        .info-row {
+            padding: 8px 0;
+        }
+        .info-label {
+            color: #6b7280;
+            font-size: 14px;
+        }
+        .info-value {
+            color: #1f2937;
+            font-weight: 600;
+            font-size: 14px;
+        }
+        .button {
+            display: inline-block;
+            background-color: #ef4444;
+            color: #ffffff !important;
+            text-decoration: none;
+            padding: 14px 32px;
+            border-radius: 6px;
+            font-weight: 600;
+            margin: 20px 0;
+            text-align: center;
+        }
+        .button-secondary {
+            display: inline-block;
+            background-color: #ffffff;
+            color: #374151 !important;
+            text-decoration: none;
+            padding: 14px 32px;
+            border-radius: 6px;
+            font-weight: 600;
+            margin: 20px 10px;
+            border: 2px solid #e5e7eb;
+        }
+        .footer {
+            background-color: #f9fafb;
+            padding: 30px;
+            text-align: center;
+            color: #6b7280;
+            font-size: 14px;
+        }
+        .footer a {
+            color: #667eea;
+            text-decoration: none;
+        }
+        @media only screen and (max-width: 600px) {
+            .container {
+                margin: 20px auto;
+                border-radius: 0;
+            }
+            .content {
+                padding: 30px 20px;
+            }
+            .button, .button-secondary {
+                display: block;
+                margin: 10px 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="warning-icon">⚠</div>
+            <h1>Payment Failed</h1>
+        </div>
+
+        <div class="content">
+            <p>Hi {{user_name}},</p>
+
+            <p>We encountered an issue processing your payment for <strong>{{plan_name}}</strong>. Don't worry - your subscription is still active for now, and we'll automatically retry the payment.</p>
+
+            <div class="alert-box">
+                <p class="alert-title">Failure Reason:</p>
+                <p class="alert-text">{{failure_reason}}</p>
+            </div>
+
+            <div class="info-box">
+                <div class="info-row">
+                    <span class="info-label">Plan:</span>
+                    <span class="info-value">{{plan_name}}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Amount:</span>
+                    <span class="info-value">{{amount}}</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-label">Next Retry:</span>
+                    <span class="info-value">{{retry_date}}</span>
+                </div>
+            </div>
+
+            <h3 style="color: #1f2937; margin: 30px 0 15px 0;">What Can You Do?</h3>
+
+            <ul style="color: #374151; margin: 15px 0; padding-left: 20px;">
+                <li><strong>Update your payment method</strong> to ensure the next attempt succeeds</li>
+                <li><strong>Check your card balance</strong> and verify there are sufficient funds</li>
+                <li><strong>Contact your bank</strong> if the issue persists</li>
+                <li><strong>Make a manual payment</strong> using the button below</li>
+            </ul>
+
+            <center style="display: {{has_payment_link}};">
+                <a href="{{payment_link}}" class="button">Update Payment Method</a>
+            </center>
+
+            <center>
+                <a href="#" class="button-secondary">Contact Support</a>
+            </center>
+
+            <p style="margin-top: 30px; font-size: 14px; color: #6b7280;">
+                <strong>Important:</strong> If we can't process your payment within 7 days, your subscription will be canceled and you'll be downgraded to the free plan.
+            </p>
+        </div>
+
+        <div class="footer">
+            <p>© {{current_year}} Smart ML Assistant. All rights reserved.</p>
+            <p>
+                <a href="#">Manage Subscription</a> |
+                <a href="#">Contact Support</a>
+            </p>
+        </div>
+    </div>
+</body>
+</html>

@@ -256,6 +256,10 @@ async def predict_with_model(
     Make predictions using a trained model.
     Loads real AutoML model from Azure if available, otherwise uses simulation.
     """
+    # Track API hit for subscription limits
+    from app.middleware.subscription_middleware import subscription_limits
+    await subscription_limits.check_api_limit(current_user.id)
+
     print(f"\n{'='*80}")
     print(f"[PREDICT] NEW PREDICTION REQUEST")
     print(f"[PREDICT] Model ID: {model_id}")
