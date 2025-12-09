@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Calendar, CreditCard, AlertCircle, Crown, Sparkles, Zap, TrendingUp } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import axios from 'axios';
+import { getApiUrl } from '@/lib/env';
 
 interface Subscription {
   id: string;
@@ -33,7 +34,7 @@ const CurrentSubscriptionCard: React.FC = () => {
     try {
       const token = localStorage.getItem('token');
       const response = await axios.get(
-        'http://localhost:8000/api/subscriptions/current',
+        `${getApiUrl()}/api/subscriptions/current`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
       setSubscription(response.data);

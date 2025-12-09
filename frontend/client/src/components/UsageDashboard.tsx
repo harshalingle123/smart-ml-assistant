@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Activity, Database, Zap, HardDrive, TrendingUp, AlertCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import axios from 'axios';
+import { getApiUrl } from '@/lib/env';
 
 interface UsageData {
   user_id: string;
@@ -40,7 +41,7 @@ const UsageDashboard: React.FC = () => {
 
   const fetchUsage = async () => {
     try {
-      const response = await axios.get('http://localhost:8000/api/subscriptions/usage', {
+      const response = await axios.get(`${getApiUrl()}/api/subscriptions/usage`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
       setUsage(response.data);

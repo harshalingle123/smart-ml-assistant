@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Check, Zap, Crown, Sparkles } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import axios from 'axios';
+import { getApiUrl } from '@/lib/env';
 
 interface Plan {
   id: string;
@@ -41,7 +42,7 @@ const SubscriptionPlans: React.FC<SubscriptionPlansProps> = ({ currentPlan = 'fr
 
   const fetchPlans = async () => {
     try {
-      const response = await axios.get('http://localhost:8000/api/subscriptions/plans', {
+      const response = await axios.get(`${getApiUrl()}/api/subscriptions/plans`, {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
       setPlans(response.data);
@@ -97,7 +98,7 @@ const SubscriptionPlans: React.FC<SubscriptionPlansProps> = ({ currentPlan = 'fr
     try {
       // Create Razorpay order
       const orderResponse = await axios.post(
-        'http://localhost:8000/api/subscriptions/create-order',
+        `${getApiUrl()}/api/subscriptions/create-order`,
         { plan: planName },
         {
           headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
@@ -124,7 +125,7 @@ const SubscriptionPlans: React.FC<SubscriptionPlansProps> = ({ currentPlan = 'fr
             try {
               // Verify payment
               await axios.post(
-                'http://localhost:8000/api/subscriptions/verify-payment',
+                `${getApiUrl()}/api/subscriptions/verify-payment`,
                 {
                   razorpay_order_id: response.razorpay_order_id,
                   razorpay_payment_id: response.razorpay_payment_id,

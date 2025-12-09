@@ -6,6 +6,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { HardDrive, Zap, Activity, TrendingUp, Plus, Check, X, Info } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import axios from 'axios';
+import { getApiUrl } from '@/lib/env';
 
 interface Addon {
   id: string;
@@ -69,9 +70,9 @@ const AddonsGrid: React.FC = () => {
       const headers = { Authorization: `Bearer ${token}` };
 
       const [addonsRes, myAddonsRes, limitsRes] = await Promise.all([
-        axios.get('http://localhost:8000/api/addons/', { headers }),
-        axios.get('http://localhost:8000/api/addons/my-addons', { headers }),
-        axios.get('http://localhost:8000/api/addons/combined-limits', { headers })
+        axios.get(`${getApiUrl()}/api/addons/`, { headers }),
+        axios.get(`${getApiUrl()}/api/addons/my-addons`, { headers }),
+        axios.get(`${getApiUrl()}/api/addons/combined-limits`, { headers })
       ]);
 
       setAddons(addonsRes.data);
@@ -146,7 +147,7 @@ const AddonsGrid: React.FC = () => {
 
       // Create order
       const orderResponse = await axios.post(
-        'http://localhost:8000/api/addons/create-order',
+        `${getApiUrl()}/api/addons/create-order`,
         { addon_slug: addonSlug, quantity },
         { headers: { Authorization: `Bearer ${token}` } }
       );
@@ -170,7 +171,7 @@ const AddonsGrid: React.FC = () => {
           handler: async (response: any) => {
             try {
               await axios.post(
-                'http://localhost:8000/api/addons/verify-payment',
+                `${getApiUrl()}/api/addons/verify-payment`,
                 {
                   addon_slug: addonSlug,
                   quantity: quantity,

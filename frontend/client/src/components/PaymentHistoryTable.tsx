@@ -20,6 +20,7 @@ import {
 import { CreditCard, Download, Filter } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import axios from 'axios';
+import { getApiUrl } from '@/lib/env';
 
 interface Payment {
   id: string;
@@ -46,7 +47,7 @@ const PaymentHistoryTable: React.FC = () => {
     try {
       const token = localStorage.getItem('token');
       const response = await axios.get(
-        'http://localhost:8000/api/subscriptions/payment-history',
+        `${getApiUrl()}/api/subscriptions/payment-history`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
       setPayments(response.data);
