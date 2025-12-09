@@ -50,7 +50,14 @@ const PaymentHistoryTable: React.FC = () => {
         { headers: { Authorization: `Bearer ${token}` } }
       );
       setPayments(response.data);
-    } catch (error) {
+    } catch (error: any) {
+      // Handle 401 Unauthorized - redirect to login
+      if (error.response?.status === 401) {
+        console.warn('[AUTH] Token expired, redirecting to login...');
+        localStorage.removeItem('token');
+        window.location.href = '/login?message=Session expired. Please log in again.';
+        return;
+      }
       toast({
         title: 'Error',
         description: 'Failed to fetch payment history',

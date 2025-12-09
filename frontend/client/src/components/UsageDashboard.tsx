@@ -44,7 +44,14 @@ const UsageDashboard: React.FC = () => {
         headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
       });
       setUsage(response.data);
-    } catch (error) {
+    } catch (error: any) {
+      // Handle 401 Unauthorized - redirect to login
+      if (error.response?.status === 401) {
+        console.warn('[AUTH] Token expired, redirecting to login...');
+        localStorage.removeItem('token');
+        window.location.href = '/login?message=Session expired. Please log in again.';
+        return;
+      }
       console.error('Failed to fetch usage:', error);
     } finally {
       setLoading(false);
