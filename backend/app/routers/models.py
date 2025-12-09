@@ -336,7 +336,15 @@ async def predict_with_model(
 
                     # 2. Load model from cache
                     print(f"[PREDICT] Loading model from: {model_path}")
-                    predictor = TabularPredictor.load(str(model_path))
+                    try:
+                        predictor = TabularPredictor.load(str(model_path))
+                    except Exception as version_error:
+                        # Handle version mismatch gracefully
+                        if "version" in str(version_error).lower():
+                            print(f"[PREDICT] Version mismatch detected, retrying with require_version_match=False")
+                            predictor = TabularPredictor.load(str(model_path), require_version_match=False)
+                        else:
+                            raise
 
                     # 3. Convert input to DataFrame
                     input_df = pd.DataFrame([input_data])
