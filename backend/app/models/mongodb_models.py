@@ -410,7 +410,7 @@ class UsageRecord(BaseModel):
     """Track user usage for billing and limits"""
     id: PyObjectId = Field(default_factory=PyObjectId, alias="_id")
     user_id: PyObjectId = Field(...)
-    subscription_id: PyObjectId = Field(...)
+    subscription_id: Optional[PyObjectId] = None  # None for free plan users
 
     # Usage counters (monthly reset)
     api_hits_used: int = Field(default=0)
