@@ -84,7 +84,7 @@ async def create_dataset(
         dataset_dict = dataset.model_dump(by_alias=True, exclude={"id"}, mode='json')
         logger.info(f"Dataset dict: {dataset_dict}")
 
-        result = await mongodb.db.labeling_datasets.insert_one(dataset_dict)
+        result = await mongodb.database.labeling_datasets.insert_one(dataset_dict)
         dataset.id = result.inserted_id
 
         return LabelingDatasetResponse(
@@ -114,7 +114,7 @@ async def create_dataset(
 async def list_datasets(current_user: User = Depends(get_current_user)):
     """List all datasets for the current user"""
     try:
-        datasets = await mongodb.db.labeling_datasets.find(
+        datasets = await mongodb.database.labeling_datasets.find(
             {"user_id": current_user.id, "status": {"$ne": "archived"}}
         ).sort("created_at", -1).to_list(length=100)
 
@@ -148,7 +148,7 @@ async def get_dataset(
 ):
     """Get a specific dataset with all its files"""
     try:
-        dataset = await mongodb.db.labeling_datasets.find_one({
+        dataset = await mongodb.database.labeling_datasets.find_one({
             "_id": ObjectId(dataset_id),
             "user_id": current_user.id
         })
@@ -160,7 +160,7 @@ async def get_dataset(
             )
 
         # Get all files in the dataset
-        files = await mongodb.db.labeling_files.find(
+        files = await mongodb.database.labeling_files.find(
             {"dataset_id": ObjectId(dataset_id)}
         ).sort("uploaded_at", -1).to_list(length=1000)
 
@@ -222,7 +222,7 @@ async def update_dataset(
 
         update_data["updated_at"] = datetime.utcnow()
 
-        result = await mongodb.db.labeling_datasets.find_one_and_update(
+        result = await mongodb.database.labeling_datasets.find_one_and_update(
             {"_id": ObjectId(dataset_id), "user_id": current_user.id},
             {"$set": update_data},
             return_document=True
@@ -264,7 +264,7 @@ async def delete_dataset(
     """Delete a dataset and all its files"""
     try:
         # Get all files to delete from Azure
-        files = await mongodb.db.labeling_files.find(
+        files = await mongodb.database.labeling_files.find(
             {"dataset_id": ObjectId(dataset_id)}
         ).to_list(length=None)
 
@@ -276,10 +276,10 @@ async def delete_dataset(
                 print(f"Warning: Failed to delete blob {file_doc['azure_blob_path']}: {e}")
 
         # Delete files from database
-        await mongodb.db.labeling_files.delete_many({"dataset_id": ObjectId(dataset_id)})
+        await mongodb.database.labeling_files.delete_many({"dataset_id": ObjectId(dataset_id)})
 
         # Delete dataset
-        result = await mongodb.db.labeling_datasets.delete_one({
+        result = await mongodb.database.labeling_datasets.delete_one({
             "_id": ObjectId(dataset_id),
             "user_id": current_user.id
         })
@@ -308,7 +308,7 @@ async def upload_files(
     """Upload files to a dataset"""
     try:
         # Verify dataset exists
-        dataset = await mongodb.db.labeling_datasets.find_one({
+        dataset = await mongodb.database.labeling_datasets.find_one({
             "_id": ObjectId(dataset_id),
             "user_id": current_user.id
         })
@@ -358,7 +358,7 @@ async def upload_files(
                 uploaded_at=datetime.utcnow()
             )
 
-            await mongodb.db.labeling_files.insert_one(labeling_file.model_dump(by_alias=True, mode='json'))
+            await mongodb.database.labeling_files.insert_one(labeling_file.model_dump(by_alias=True, mode='json'))
 
             uploaded_files.append(LabelingFileResponse(
                 id=str(labeling_file.id),
@@ -373,7 +373,7 @@ async def upload_files(
             ))
 
         # Update dataset file count
-        await mongodb.db.labeling_datasets.update_one(
+        await mongodb.database.labeling_datasets.update_one(
             {"_id": ObjectId(dataset_id)},
             {"$inc": {"total_files": len(files)}, "$set": {"updated_at": datetime.utcnow()}}
         )
@@ -399,17 +399,17 @@ async def analyze_files(
         # Process files asynchronously
         for file_id in request.file_ids:
             # Update status to processing
-            await mongodb.db.labeling_files.update_one(
+            await mongodb.database.labeling_files.update_one(
                 {"_id": ObjectId(file_id)},
                 {"$set": {"status": "processing"}}
             )
 
             # Get file and dataset info
-            file_doc = await mongodb.db.labeling_files.find_one({"_id": ObjectId(file_id)})
+            file_doc = await mongodb.database.labeling_files.find_one({"_id": ObjectId(file_id)})
             if not file_doc:
                 continue
 
-            dataset_doc = await mongodb.db.labeling_datasets.find_one({"_id": file_doc["dataset_id"]})
+            dataset_doc = await mongodb.database.labeling_datasets.find_one({"_id": file_doc["dataset_id"]})
             if not dataset_doc:
                 continue
 
@@ -428,7 +428,7 @@ async def analyze_files(
 
                 if label_data:
                     # Update file with results
-                    await mongodb.db.labeling_files.update_one(
+                    await mongodb.database.labeling_files.update_one(
                         {"_id": ObjectId(file_id)},
                         {
                             "$set": {
@@ -440,7 +440,7 @@ async def analyze_files(
                     )
 
                     # Update dataset stats
-                    await mongodb.db.labeling_datasets.update_one(
+                    await mongodb.database.labeling_datasets.update_one(
                         {"_id": file_doc["dataset_id"]},
                         {"$inc": {"completed_files": 1}}
                     )
@@ -451,7 +451,7 @@ async def analyze_files(
 
                 else:
                     # Mark as failed
-                    await mongodb.db.labeling_files.update_one(
+                    await mongodb.database.labeling_files.update_one(
                         {"_id": ObjectId(file_id)},
                         {
                             "$set": {
@@ -461,14 +461,14 @@ async def analyze_files(
                         }
                     )
 
-                    await mongodb.db.labeling_datasets.update_one(
+                    await mongodb.database.labeling_datasets.update_one(
                         {"_id": file_doc["dataset_id"]},
                         {"$inc": {"failed_files": 1}}
                     )
 
             except Exception as e:
                 # Mark as failed
-                await mongodb.db.labeling_files.update_one(
+                await mongodb.database.labeling_files.update_one(
                     {"_id": ObjectId(file_id)},
                     {
                         "$set": {
@@ -478,7 +478,7 @@ async def analyze_files(
                     }
                 )
 
-                await mongodb.db.labeling_datasets.update_one(
+                await mongodb.database.labeling_datasets.update_one(
                     {"_id": file_doc["dataset_id"]},
                     {"$inc": {"failed_files": 1}}
                 )
@@ -500,7 +500,7 @@ async def refine_labels(
 ):
     """Refine labels after user edits"""
     try:
-        file_doc = await mongodb.db.labeling_files.find_one({
+        file_doc = await mongodb.database.labeling_files.find_one({
             "_id": ObjectId(file_id),
             "user_id": current_user.id
         })
@@ -511,7 +511,7 @@ async def refine_labels(
                 detail="File not found"
             )
 
-        dataset_doc = await mongodb.db.labeling_datasets.find_one({"_id": file_doc["dataset_id"]})
+        dataset_doc = await mongodb.database.labeling_datasets.find_one({"_id": file_doc["dataset_id"]})
 
         # Download file
         file_content = await asyncio.to_thread(azure_storage_service.download_file, file_doc["azure_blob_path"])
@@ -526,7 +526,7 @@ async def refine_labels(
         )
 
         if label_data:
-            await mongodb.db.labeling_files.update_one(
+            await mongodb.database.labeling_files.update_one(
                 {"_id": ObjectId(file_id)},
                 {
                     "$set": {
@@ -572,7 +572,7 @@ async def get_label_suggestions(
     """Get AI-suggested labels based on files"""
     try:
         # Get file info
-        files = await mongodb.db.labeling_files.find({
+        files = await mongodb.database.labeling_files.find({
             "_id": {"$in": [ObjectId(fid) for fid in request.file_ids]}
         }).to_list(length=10)
 
@@ -582,7 +582,7 @@ async def get_label_suggestions(
             return LabelSuggestionsResponse(suggested_labels=[])
 
         # Get dataset task
-        dataset_doc = await mongodb.db.labeling_datasets.find_one({"_id": files[0]["dataset_id"]})
+        dataset_doc = await mongodb.database.labeling_datasets.find_one({"_id": files[0]["dataset_id"]})
 
         suggestions = await labeling_service.get_label_suggestions(
             filenames=filenames,
@@ -606,7 +606,7 @@ async def export_dataset(
 ):
     """Export dataset in various formats"""
     try:
-        dataset = await mongodb.db.labeling_datasets.find_one({
+        dataset = await mongodb.database.labeling_datasets.find_one({
             "_id": ObjectId(dataset_id),
             "user_id": current_user.id
         })
@@ -617,7 +617,7 @@ async def export_dataset(
                 detail="Dataset not found"
             )
 
-        files = await mongodb.db.labeling_files.find(
+        files = await mongodb.database.labeling_files.find(
             {"dataset_id": ObjectId(dataset_id), "status": "completed"}
         ).to_list(length=None)
 
@@ -723,7 +723,7 @@ async def delete_file(
 ):
     """Delete a file"""
     try:
-        file_doc = await mongodb.db.labeling_files.find_one({
+        file_doc = await mongodb.database.labeling_files.find_one({
             "_id": ObjectId(file_id),
             "user_id": current_user.id
         })
@@ -741,10 +741,10 @@ async def delete_file(
             print(f"Warning: Failed to delete blob: {e}")
 
         # Delete from database
-        await mongodb.db.labeling_files.delete_one({"_id": ObjectId(file_id)})
+        await mongodb.database.labeling_files.delete_one({"_id": ObjectId(file_id)})
 
         # Update dataset stats
-        await mongodb.db.labeling_datasets.update_one(
+        await mongodb.database.labeling_datasets.update_one(
             {"_id": file_doc["dataset_id"]},
             {"$inc": {"total_files": -1}}
         )
@@ -765,7 +765,7 @@ async def get_file(
 ):
     """Get a specific file"""
     try:
-        file_doc = await mongodb.db.labeling_files.find_one({
+        file_doc = await mongodb.database.labeling_files.find_one({
             "_id": ObjectId(file_id),
             "user_id": current_user.id
         })
