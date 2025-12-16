@@ -379,6 +379,89 @@ class SubscriptionService:
 
         logger.info(f"Canceled {len(cancel_at_end)} subscriptions at period end")
 
+    async def check_labeling_limit(self, user_id: ObjectId, num_files: int) -> bool:
+        """Check if user can label more files this month"""
+        from app.services.addon_service import addon_service
+
+        # Get combined limits (base plan + add-ons)
+        combined_limits = await addon_service.calculate_combined_limits(user_id)
+
+        usage_record = await mongodb.database["usage_records"].find_one(
+            {"user_id": user_id}
+        )
+
+        if not usage_record:
+            return True  # First labeling
+
+        files_labeled = usage_record.get("labeling_files_used", 0)
+        limit = combined_limits["total_limits"].get("labeling_files_per_month", 50)
+
+        if files_labeled + num_files > limit:
+            from fastapi import HTTPException, status
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"Labeling limit exceeded. You have used {files_labeled}/{limit} files this month. Upgrade your plan to label more files."
+            )
+
+        return True
+
+    async def check_labeling_file_size(self, user_id: ObjectId, file_size_bytes: int) -> bool:
+        """Check if file size is within labeling limits"""
+        from app.services.addon_service import addon_service
+
+        # Get combined limits (base plan + add-ons)
+        combined_limits = await addon_service.calculate_combined_limits(user_id)
+        limit_mb = combined_limits["total_limits"].get("labeling_file_size_mb", 10)
+        file_size_mb = file_size_bytes / (1024 * 1024)
+
+        if file_size_mb > limit_mb:
+            from fastapi import HTTPException, status
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"File size ({file_size_mb:.2f} MB) exceeds limit of {limit_mb} MB. Upgrade your plan for larger files."
+            )
+
+        return True
+
+    async def increment_labeling_usage(self, user_id: ObjectId) -> None:
+        """Increment labeling file counter"""
+        logger.info(f"[LABELING USAGE] Incrementing labeling usage for user: {user_id}")
+
+        usage_record = await mongodb.database["usage_records"].find_one(
+            {"user_id": user_id}
+        )
+
+        if not usage_record:
+            logger.info(f"[LABELING USAGE] Creating new usage record for user: {user_id}")
+            subscription = await self.get_user_subscription(user_id)
+            period_start = datetime.utcnow()
+            period_end = period_start + timedelta(days=30)
+
+            new_usage = UsageRecord(
+                user_id=user_id,
+                subscription_id=subscription.get("_id"),
+                api_hits_used=0,
+                models_trained_today=0,
+                azure_storage_used_mb=0.0,
+                labeling_files_used=1,
+                billing_cycle_start=period_start,
+                billing_cycle_end=period_end
+            )
+            await mongodb.database["usage_records"].insert_one(
+                new_usage.dict(by_alias=True)
+            )
+            logger.info(f"[LABELING USAGE] Created usage record with 1 labeled file")
+        else:
+            logger.info(f"[LABELING USAGE] Updating existing usage record for user: {user_id}")
+            await mongodb.database["usage_records"].update_one(
+                {"_id": usage_record["_id"]},
+                {
+                    "$inc": {"labeling_files_used": 1},
+                    "$set": {"updated_at": datetime.utcnow()}
+                }
+            )
+            logger.info(f"[LABELING USAGE] Incremented labeling files used")
+
 
 # Global subscription service instance
 subscription_service = SubscriptionService()

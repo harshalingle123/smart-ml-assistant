@@ -456,16 +456,51 @@ async def delete_model(
     model_id: str,
     current_user: User = Depends(get_current_user),
 ):
-    """Delete a model"""
-    result = await mongodb.database["models"].delete_one(
+    """Delete a model from MongoDB and Azure Blob Storage"""
+    # Get model first to check if it exists and has Azure blob path
+    model = await mongodb.database["models"].find_one(
         {"_id": ObjectId(model_id), "user_id": current_user.id}
     )
 
-    if result.deleted_count == 0:
+    if not model:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Model not found"
         )
+
+    # Delete from Azure Blob Storage if blob path exists
+    blob_path = model.get("azure_blob_path")
+    if blob_path:
+        try:
+            from app.utils.azure_storage import azure_storage_service
+            print(f"[DELETE_MODEL] Deleting from Azure: {blob_path}")
+
+            # Delete model files from Azure using user_id and model_id
+            deleted_count = azure_storage_service.delete_model(
+                user_id=str(current_user.id),
+                model_id=model_id
+            )
+            print(f"[DELETE_MODEL] ✓ Deleted {deleted_count} files from Azure")
+
+            # Decrement storage usage if model size is tracked
+            model_size = model.get("model_size", 0)
+            if model_size > 0:
+                model_size_mb = model_size / (1024 * 1024)
+                print(f"[DELETE_MODEL] Decrementing storage usage...")
+                from app.services.subscription_service import subscription_service
+                await subscription_service.update_storage_usage(current_user.id, -model_size_mb)
+                print(f"[DELETE_MODEL] ✓ Storage usage decremented: -{model_size_mb:.2f} MB")
+            else:
+                print(f"[DELETE_MODEL] ⚠️ Model size not tracked in MongoDB, skipping storage decrement")
+
+        except Exception as azure_error:
+            print(f"[DELETE_MODEL] ⚠️ Failed to delete from Azure: {str(azure_error)}")
+            # Continue with MongoDB deletion even if Azure deletion fails
+
+    # Delete from MongoDB
+    result = await mongodb.database["models"].delete_one(
+        {"_id": ObjectId(model_id), "user_id": current_user.id}
+    )
 
     return JSONResponse(
         content={"message": "Model deleted successfully"},

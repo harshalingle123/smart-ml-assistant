@@ -138,11 +138,14 @@ async def event_generator(dataset_id: str, chat_id: str) -> AsyncGenerator[str, 
         use_autogluon = False
         TabularPredictor = None
         try:
+            print(f"[AUTOML] Attempting to import AutoGluon...")
             from autogluon.tabular import TabularPredictor
             use_autogluon = True
+            print(f"[AUTOML] ✅ AutoGluon imported successfully!")
             yield event({"type": "status", "message": "✅ AutoML loaded successfully"})
-        except ImportError:
-            error_msg = "AutoML not installed. Using simulation mode..."
+        except ImportError as import_error:
+            error_msg = f"AutoML not installed: {str(import_error)}"
+            print(f"[AUTOML] ❌ {error_msg}")
             yield event({"type": "status", "message": f"⚠️ {error_msg}"})
             await mongodb.database.messages.insert_one({
                 "chat_id": ObjectId(chat_id),
@@ -151,6 +154,11 @@ async def event_generator(dataset_id: str, chat_id: str) -> AsyncGenerator[str, 
                 "timestamp": datetime.utcnow()
             })
             yield event({"type": "status", "message": "📦 Using lightweight training mode (AutoML not available)"})
+            await asyncio.sleep(1)
+        except Exception as other_error:
+            error_msg = f"Error loading AutoML: {str(other_error)}"
+            print(f"[AUTOML] ❌ {error_msg}")
+            yield event({"type": "status", "message": f"⚠️ {error_msg}"})
             await asyncio.sleep(1)
 
         yield event({"type": "status", "message": "🔧 Preparing data..."})
@@ -227,6 +235,14 @@ async def event_generator(dataset_id: str, chat_id: str) -> AsyncGenerator[str, 
         if use_autogluon and TabularPredictor:
             # REAL AutoML training
             try:
+                print(f"\n{'='*80}")
+                print(f"[AUTOML] Starting REAL AutoGluon training")
+                print(f"[AUTOML] Dataset ID: {dataset_id}")
+                print(f"[AUTOML] Target column: {target_column}")
+                print(f"[AUTOML] Task type: {'Classification' if is_classification else 'Regression'}")
+                print(f"[AUTOML] Dataset shape: {df.shape}")
+                print(f"{'='*80}\n")
+
                 # Create temporary model directory
                 import tempfile
                 temp_dir = tempfile.mkdtemp(prefix=f"model_{dataset_id}_")
@@ -245,18 +261,33 @@ async def event_generator(dataset_id: str, chat_id: str) -> AsyncGenerator[str, 
                     eval_metric='accuracy' if is_classification else 'r2'
                 )
 
+                # Calculate appropriate time limit based on dataset size
+                # Small datasets (<1000 rows): 120s
+                # Medium datasets (1000-10000 rows): 300s
+                # Large datasets (>10000 rows): 600s
+                num_rows = len(df)
+                if num_rows < 1000:
+                    time_limit = 120  # 2 minutes
+                elif num_rows < 10000:
+                    time_limit = 300  # 5 minutes
+                else:
+                    time_limit = 600  # 10 minutes
+
+                print(f"[AUTOML] Dataset size: {num_rows} rows")
+                print(f"[AUTOML] Setting time_limit: {time_limit} seconds ({time_limit/60:.1f} minutes)")
+
                 # Train in executor to avoid blocking event loop (critical for health checks)
                 loop = asyncio.get_event_loop()
                 def train_model():
                     predictor.fit(
                         train_data=df,
-                        time_limit=60,  # 1 minute for quick demo
+                        time_limit=time_limit,  # Dynamic time limit based on dataset size
                         presets='medium_quality',  # Use medium quality for faster training
                         verbosity=2
                     )
                     return predictor
 
-                yield event({"type": "status", "message": "⚙️ Training in progress (this won't block the server)..."})
+                yield event({"type": "status", "message": f"⚙️ Training in progress (~{time_limit/60:.0f} minutes, this won't block the server)..."})
 
                 # Train the model (simplified - no complex keepalive for now)
                 predictor = await loop.run_in_executor(None, train_model)
@@ -293,8 +324,26 @@ async def event_generator(dataset_id: str, chat_id: str) -> AsyncGenerator[str, 
 
             except Exception as ag_error:
                 # If AutoML fails, fall back to simulation
+                import traceback
+                error_traceback = traceback.format_exc()
+                print(f"\n{'!'*80}")
+                print(f"[AUTOML ERROR] AutoGluon training failed!")
+                print(f"[AUTOML ERROR] Error: {str(ag_error)}")
+                print(f"[AUTOML ERROR] Full traceback:")
+                print(error_traceback)
+                print(f"{'!'*80}\n")
+
                 yield event({"type": "status", "message": f"⚠️ AutoML training error: {str(ag_error)}"})
                 yield event({"type": "status", "message": "📦 Falling back to simulation mode..."})
+
+                # Send error details to chat for debugging
+                await mongodb.database.messages.insert_one({
+                    "chat_id": ObjectId(chat_id),
+                    "role": "assistant",
+                    "content": f"⚠️ AutoML training failed: {str(ag_error)}\nFalling back to simulation mode.",
+                    "timestamp": datetime.utcnow()
+                })
+
                 use_autogluon = False
 
         if not use_autogluon:
@@ -396,6 +445,7 @@ async def event_generator(dataset_id: str, chat_id: str) -> AsyncGenerator[str, 
             "task_type": "classification" if is_classification else "regression",
             "metrics": metrics,
             "uses_real_model": use_autogluon,
+            "model_size": 0,  # Will be updated if uploaded to Azure
             "created_at": datetime.utcnow()
         }
 
@@ -443,8 +493,18 @@ async def event_generator(dataset_id: str, chat_id: str) -> AsyncGenerator[str, 
 
                     print(f"[AUTOML] ✅ Upload successful! Blob path: {azure_blob_path}")
 
+                    # Save blob path and model size in model doc
+                    model_size_bytes = len(model_bytes)
                     model_doc["azure_blob_path"] = azure_blob_path
+                    model_doc["model_size"] = model_size_bytes
                     yield event({"type": "status", "message": f"✓ Model uploaded to Azure: {azure_blob_path}"})
+
+                    # Update storage usage tracking
+                    model_size_mb = model_size_bytes / (1024 * 1024)
+                    print(f"[AUTOML] Updating storage usage...")
+                    from app.services.subscription_service import subscription_service
+                    await subscription_service.update_storage_usage(dataset["user_id"], model_size_mb)
+                    print(f"[AUTOML] ✓ Storage usage updated: +{model_size_mb:.2f} MB")
 
                     # Cleanup temp files
                     try:

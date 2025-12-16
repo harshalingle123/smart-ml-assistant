@@ -76,7 +76,7 @@ class EmailService:
                 logger.warning(f"Failed to initialize AWS SES: {str(e)}")
 
         # Try SMTP as fallback
-        if hasattr(settings, 'SMTP_HOST') and settings.SMTP_HOST:
+        if hasattr(settings, 'SMTP_SERVER') and settings.SMTP_SERVER:
             self.provider = "smtp"
             logger.info("Email service initialized with SMTP")
             return
@@ -117,9 +117,9 @@ class EmailService:
 
         # Use default sender if not provided
         if not from_email:
-            from_email = getattr(settings, 'EMAIL_FROM', 'noreply@yourapp.com')
+            from_email = getattr(settings, 'SENDER_EMAIL', 'noreply@yourapp.com')
         if not from_name:
-            from_name = getattr(settings, 'EMAIL_FROM_NAME', 'Smart ML Assistant')
+            from_name = getattr(settings, 'SENDER_NAME', 'Smart ML Assistant')
 
         logger.info(f"Sending email to {to_email}: {subject}")
 
@@ -272,11 +272,11 @@ class EmailService:
             html_part = MIMEText(html_content, 'html')
             msg.attach(html_part)
 
-            with smtplib.SMTP(settings.SMTP_HOST, settings.SMTP_PORT) as server:
+            with smtplib.SMTP(settings.SMTP_SERVER, settings.SMTP_PORT) as server:
                 if getattr(settings, 'SMTP_TLS', True):
                     server.starttls()
-                if hasattr(settings, 'SMTP_USER') and settings.SMTP_USER:
-                    server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+                if hasattr(settings, 'SMTP_USERNAME') and settings.SMTP_USERNAME:
+                    server.login(settings.SMTP_USERNAME, settings.SMTP_PASSWORD)
 
                 server.send_message(msg)
 
@@ -333,6 +333,8 @@ class EmailService:
 
         This is sent immediately after payment.captured webhook
         """
+        from app.core.config import settings
+
         template = self._load_template("payment_confirmation")
 
         context = {
@@ -342,6 +344,7 @@ class EmailService:
             "payment_id": payment_id,
             "payment_date": payment_date.strftime("%B %d, %Y"),
             "next_billing_date": next_billing_date.strftime("%B %d, %Y") if next_billing_date else "N/A",
+            "dashboard_link": f"{getattr(settings, 'FRONTEND_URL', 'http://localhost:5173')}/dashboard",
             "current_year": datetime.utcnow().year
         }
 
@@ -491,14 +494,16 @@ class EmailService:
 
         This is sent after first successful payment
         """
+        from app.core.config import settings
+
         template = self._load_template("welcome")
 
         context = {
             "user_name": user_name,
             "plan_name": plan_name,
-            "dashboard_link": "#",  # Add your dashboard URL
-            "docs_link": "#",  # Add your docs URL
-            "support_email": "support@yourapp.com",
+            "dashboard_link": f"{getattr(settings, 'FRONTEND_URL', 'http://localhost:5173')}/dashboard",
+            "docs_link": f"{getattr(settings, 'FRONTEND_URL', 'http://localhost:5173')}/docs",
+            "support_email": getattr(settings, 'SENDER_EMAIL', 'support@smartml.com'),
             "current_year": datetime.utcnow().year
         }
 
@@ -506,7 +511,7 @@ class EmailService:
 
         return await self.send_email(
             to_email=user_email,
-            subject=f"Welcome to {plan_name}! 🎉",
+            subject=f"Welcome to Smart ML - {plan_name} Plan! 🎉",
             html_content=html_content
         )
 

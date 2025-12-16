@@ -386,6 +386,12 @@ async def upload_dataset(
         # Update dataset_dict with Azure blob path for response
         dataset_dict["azure_blob_path"] = azure_blob_path
 
+        # Update storage usage tracking
+        print(f"[UPLOAD] Updating storage usage...")
+        from app.services.subscription_service import subscription_service
+        await subscription_service.update_storage_usage(current_user.id, file_size_mb)
+        print(f"[UPLOAD] ✓ Storage usage updated: +{file_size_mb:.2f} MB")
+
         # Update user's datasets_count
         print(f"[UPLOAD] Updating user's dataset count...")
         await mongodb.database["users"].update_one(
@@ -592,7 +598,14 @@ async def add_dataset_from_kaggle(
                     {"$set": {"azure_blob_path": azure_blob_path}}
                 )
                 print(f"[ADD_KAGGLE] ✓ Updated dataset with Azure blob path")
-                
+
+                # Update storage usage tracking
+                file_size_mb = file_size / (1024 * 1024)
+                print(f"[ADD_KAGGLE] Updating storage usage...")
+                from app.services.subscription_service import subscription_service
+                await subscription_service.update_storage_usage(current_user.id, file_size_mb)
+                print(f"[ADD_KAGGLE] ✓ Storage usage updated: +{file_size_mb:.2f} MB")
+
                 # Delete local files after successful Azure upload
                 import shutil
                 if os.path.exists(download_path):
@@ -1127,6 +1140,14 @@ async def inspect_huggingface_dataset(dataset: dict, dataset_id: str, user_query
             {"$set": update_data}
         )
 
+        # Update storage usage tracking
+        file_size_mb = file_size / (1024 * 1024)
+        print(f"[HUGGINGFACE INSPECT] Updating storage usage...")
+        from app.services.subscription_service import subscription_service
+        user_id = dataset.get("user_id")
+        await subscription_service.update_storage_usage(user_id, file_size_mb)
+        print(f"[HUGGINGFACE INSPECT] ✓ Storage usage updated: +{file_size_mb:.2f} MB")
+
         print(f"[HUGGINGFACE INSPECT] ✅ Successfully inspected HuggingFace dataset: {row_count} rows, {col_count} columns")
         print(f"[HUGGINGFACE INSPECT] Dataset stored in Azure: {azure_blob_path}")
 
@@ -1324,6 +1345,13 @@ async def inspect_dataset(
             {"$set": update_data}
         )
 
+        # Update storage usage tracking
+        file_size_mb = size_bytes / (1024 * 1024)
+        print(f"[INSPECT] Updating storage usage...")
+        from app.services.subscription_service import subscription_service
+        await subscription_service.update_storage_usage(current_user.id, file_size_mb)
+        print(f"[INSPECT] ✓ Storage usage updated: +{file_size_mb:.2f} MB")
+
         print(f"[INSPECT] Successfully inspected dataset: {row_count} rows, {col_count} columns, target: {target_column}")
         print(f"[INSPECT] Dataset stored in Azure: {azure_blob_path}")
 
@@ -1385,6 +1413,10 @@ async def delete_dataset(
                 detail="Dataset not found or you don't have permission to delete it"
             )
 
+        # Get file size before deletion (for storage usage tracking)
+        file_size = dataset.get("file_size", 0)
+        file_size_mb = file_size / (1024 * 1024) if file_size > 0 else 0
+
         # Delete from Azure Blob Storage if blob path exists
         # Support both new blob_path and legacy azure_dataset_url
         blob_path = dataset.get("azure_blob_path") or dataset.get("azure_dataset_url")
@@ -1399,6 +1431,13 @@ async def delete_dataset(
                     dataset_id=dataset_id
                 )
                 print(f"[DELETE_DATASET] ✓ Deleted {deleted_count} files from Azure")
+
+                # Decrement storage usage tracking
+                if file_size_mb > 0:
+                    print(f"[DELETE_DATASET] Decrementing storage usage...")
+                    from app.services.subscription_service import subscription_service
+                    await subscription_service.update_storage_usage(current_user.id, -file_size_mb)
+                    print(f"[DELETE_DATASET] ✓ Storage usage decremented: -{file_size_mb:.2f} MB")
 
             except Exception as azure_error:
                 print(f"[DELETE_DATASET] ⚠️ Failed to delete from Azure: {str(azure_error)}")

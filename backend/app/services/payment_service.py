@@ -215,12 +215,13 @@ class PaymentService:
             }
         )
 
-        # Create or update usage record
+        # Create or update usage record (search by user_id only since it's unique)
         usage_record = await mongodb.database["usage_records"].find_one(
-            {"user_id": user_id, "subscription_id": subscription_id}
+            {"user_id": user_id}
         )
 
         if not usage_record:
+            # Create new usage record for new user
             new_usage = UsageRecord(
                 user_id=user_id,
                 subscription_id=subscription_id,
@@ -235,11 +236,12 @@ class PaymentService:
             )
             logger.info(f"Created usage record for user {user_id}")
         else:
-            # Reset usage for new billing cycle
+            # Update existing usage record with new subscription and reset usage
             await mongodb.database["usage_records"].update_one(
                 {"_id": usage_record["_id"]},
                 {
                     "$set": {
+                        "subscription_id": subscription_id,
                         "api_hits_used": 0,
                         "models_trained_today": 0,
                         "billing_cycle_start": period_start,
@@ -249,6 +251,7 @@ class PaymentService:
                     }
                 }
             )
+            logger.info(f"Updated usage record for user {user_id} with new subscription {subscription_id}")
 
         # Record payment transaction
         payment_record = Payment(
@@ -266,6 +269,53 @@ class PaymentService:
         await mongodb.database["payments"].insert_one(
             payment_record.dict(by_alias=True)
         )
+
+        # Send subscription confirmation email
+        try:
+            from app.services.email_service import email_service
+
+            # Get user details for email
+            user = await mongodb.database["users"].find_one({"_id": user_id})
+            if user and user.get("email"):
+                user_email = user["email"]
+                user_name = user.get("full_name") or user.get("username") or "User"
+
+                logger.info(f"Sending subscription confirmation email to {user_email}")
+
+                # Send payment confirmation email
+                email_result = await email_service.send_payment_confirmation(
+                    user_email=user_email,
+                    user_name=user_name,
+                    plan_name=plan.name,
+                    amount=plan.price_monthly,
+                    currency=plan.currency,
+                    payment_id=razorpay_payment_id,
+                    payment_date=datetime.utcnow(),
+                    next_billing_date=period_end
+                )
+
+                if email_result.get("success"):
+                    logger.info(f"Subscription confirmation email sent successfully to {user_email}")
+                else:
+                    logger.warning(f"Failed to send email to {user_email}: {email_result.get('error')}")
+
+                # Send welcome email for new subscribers (not upgrades)
+                if not existing_sub:
+                    welcome_result = await email_service.send_welcome_email(
+                        user_email=user_email,
+                        user_name=user_name,
+                        plan_name=plan.name
+                    )
+                    if welcome_result.get("success"):
+                        logger.info(f"Welcome email sent successfully to {user_email}")
+                    else:
+                        logger.warning(f"Failed to send welcome email to {user_email}: {welcome_result.get('error')}")
+            else:
+                logger.warning(f"User email not found for user_id: {user_id}")
+
+        except Exception as e:
+            # Don't fail the payment if email fails
+            logger.error(f"Error sending subscription email: {str(e)}")
 
         return {
             "success": True,

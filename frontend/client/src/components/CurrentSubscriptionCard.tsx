@@ -37,12 +37,23 @@ const CurrentSubscriptionCard: React.FC = () => {
         `${getApiUrl()}/api/subscriptions/current`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      setSubscription(response.data);
-      setIsFree(false);
-    } catch (error: any) {
-      if (error.response?.status === 404) {
-        // User is on free plan
+
+      // Check if user is on free plan
+      if (response.data.plan === 'free') {
         setIsFree(true);
+        setSubscription(null);
+      } else {
+        setSubscription(response.data);
+        setIsFree(false);
+      }
+    } catch (error: any) {
+      // Handle authentication errors
+      if (error.response?.status === 401) {
+        toast({
+          title: 'Authentication Error',
+          description: 'Please log in again',
+          variant: 'destructive',
+        });
       } else {
         toast({
           title: 'Error',

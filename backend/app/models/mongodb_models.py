@@ -367,6 +367,10 @@ class Plan(BaseModel):
     training_time_minutes_per_model: int = Field(...)
     concurrent_trainings: int = Field(default=1)
 
+    # Labeling Limits
+    labeling_files_per_month: int = Field(default=50)  # Max files to label per month
+    labeling_file_size_mb: int = Field(default=10)  # Max file size for labeling
+
     # Features
     features: List[str] = Field(default_factory=list)
     priority_support: bool = Field(default=False)
@@ -416,6 +420,7 @@ class UsageRecord(BaseModel):
     api_hits_used: int = Field(default=0)
     models_trained_today: int = Field(default=0)
     azure_storage_used_mb: float = Field(default=0.0)
+    labeling_files_used: int = Field(default=0)  # Files labeled this month
 
     # Composite Limits (Base plan + Add-ons) - Cached for performance
     composite_limits: Optional[dict] = None  # Calculated limits including add-ons
@@ -689,6 +694,78 @@ class DunningAttempt(BaseModel):
     email_sent: bool = Field(default=False)  # Did we send reminder email
     email_sent_at: Optional[datetime] = None
 
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+    class Config:
+        populate_by_name = True
+        arbitrary_types_allowed = True
+        json_encoders = {ObjectId: str}
+
+
+class LabelData(BaseModel):
+    """Structured labeling result from Gemini"""
+    summary: Optional[str] = None
+    sentiment: Optional[str] = None
+    objects: Optional[List[dict]] = None  # {label, confidence, box_2d, location}
+    topics: Optional[List[str]] = None
+    events: Optional[List[dict]] = None  # {timestamp, description}
+    entities: Optional[List[dict]] = None  # {name, type}
+    safety_flags: Optional[List[str]] = None
+
+    class Config:
+        populate_by_name = True
+        arbitrary_types_allowed = True
+
+
+class LabelingFile(BaseModel):
+    """Individual file within a labeling dataset"""
+    id: PyObjectId = Field(default_factory=PyObjectId, alias="_id")
+    dataset_id: PyObjectId = Field(...)
+    user_id: PyObjectId = Field(...)
+
+    # File metadata
+    filename: str = Field(...)
+    original_name: str = Field(...)
+    media_type: str = Field(...)  # "image" | "video" | "audio" | "text" | "pdf" | "unknown"
+    file_size: int = Field(...)  # bytes
+    azure_blob_path: str = Field(...)  # Azure storage path
+    preview_url: Optional[str] = None  # For images/videos
+
+    # Processing
+    status: str = Field(default="pending")  # "pending" | "processing" | "completed" | "failed"
+    result: Optional[LabelData] = None
+    error_message: Optional[str] = None
+
+    # Timestamps
+    uploaded_at: datetime = Field(default_factory=datetime.utcnow)
+    processed_at: Optional[datetime] = None
+
+    class Config:
+        populate_by_name = True
+        arbitrary_types_allowed = True
+        json_encoders = {ObjectId: str}
+
+
+class LabelingDataset(BaseModel):
+    """Collection of files for labeling"""
+    id: PyObjectId = Field(default_factory=PyObjectId, alias="_id")
+    user_id: PyObjectId = Field(...)
+
+    # Dataset info
+    name: str = Field(...)
+    task: str = Field(...)  # "general_analysis" | "object_detection" | "sentiment_analysis" | etc.
+    target_labels: Optional[List[str]] = None  # Constrained label vocabulary
+
+    # Statistics
+    total_files: int = Field(default=0)
+    completed_files: int = Field(default=0)
+    failed_files: int = Field(default=0)
+
+    # Status
+    status: str = Field(default="active")  # "active" | "completed" | "archived"
+
+    # Timestamps
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 

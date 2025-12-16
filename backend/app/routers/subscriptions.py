@@ -64,10 +64,22 @@ async def get_current_subscription(current_user: User = Depends(get_current_user
     subscription = await subscription_service.get_user_subscription(current_user.id)
 
     if not subscription or subscription.get("plan") == "free":
-        # Return free plan as default
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No active paid subscription found. User is on free plan."
+        # Return free plan details instead of 404
+        return SubscriptionResponse(
+            id="free",
+            user_id=str(current_user.id),
+            plan="free",
+            provider="none",
+            status="active",
+            period_start=datetime.utcnow(),
+            period_end=datetime.utcnow(),
+            cancel_at_period_end=False,
+            canceled_at=None,
+            amount=0,
+            currency="INR",
+            last_payment_at=None,
+            next_billing_date=None,
+            razorpay_subscription_id=None
         )
 
     return SubscriptionResponse(

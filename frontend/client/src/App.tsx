@@ -22,6 +22,8 @@ import Settings from "@/pages/Settings";
 import Login from "@/pages/Login";
 import Register from "@/pages/Register";
 import ForgotPassword from "@/pages/ForgotPassword";
+import Labeling from "@/pages/Labeling";
+import LabelingDetail from "@/pages/LabelingDetail";
 
 function ProtectedLayout() {
   const style = {
@@ -47,6 +49,8 @@ function ProtectedLayout() {
                 <Route path="/models" component={Models} />
                 <Route path="/datasets/:id" component={DatasetDetails} />
                 <Route path="/datasets" component={Datasets} />
+                <Route path="/labeling/:id" component={LabelingDetail} />
+                <Route path="/labeling" component={Labeling} />
                 <Route path="/fine-tune" component={FineTune} />
                 <Route path="/billing" component={Billing} />
                 <Route path="/settings" component={Settings} />
