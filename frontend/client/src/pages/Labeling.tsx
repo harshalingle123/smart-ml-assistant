@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "wouter";
+import { useLocation } from "wouter";
 import {Plus, Tag, FileText, Loader2, Trash2, Calendar, CheckCircle2, XCircle, Clock } from "lucide-react";
 import { getLabelingDatasets, createLabelingDataset, deleteLabelingDataset } from "../lib/api";
 import { LabelingDataset, LabelingTask } from "../types/labeling";
@@ -18,7 +18,7 @@ export default function Labeling() {
   const [newDatasetName, setNewDatasetName] = useState("");
   const [newDatasetTask, setNewDatasetTask] = useState<string>(LabelingTask.GENERAL);
   const [creating, setCreating] = useState(false);
-  const navigate = useNavigate();
+  const [, setLocation] = useLocation();
   const { toast } = useToast();
 
   const loadDatasets = async () => {
@@ -221,7 +221,7 @@ export default function Labeling() {
             <Card
               key={dataset.id}
               className="cursor-pointer hover:shadow-lg transition-shadow"
-              onClick={() => navigate(`/labeling/${dataset.id}`)}
+              onClick={() => setLocation(`/labeling/${dataset.id}`)}
             >
               <CardHeader>
                 <div className="flex items-start justify-between">

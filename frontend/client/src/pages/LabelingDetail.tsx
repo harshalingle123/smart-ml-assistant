@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useRoute, useNavigate } from "wouter";
+import { useRoute, useLocation } from "wouter";
 import {
   ArrowLeft,
   Upload,
@@ -31,7 +31,7 @@ import { Progress } from "../components/ui/progress";
 
 export default function LabelingDetail() {
   const [, params] = useRoute("/labeling/:id");
-  const navigate = useNavigate();
+  const [, setLocation] = useLocation();
   const [dataset, setDataset] = useState<LabelingDatasetDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -191,7 +191,7 @@ export default function LabelingDetail() {
   return (
     <div className="container mx-auto p-6">
       <div className="mb-6">
-        <Button variant="ghost" onClick={() => navigate("/labeling")} className="mb-4">
+        <Button variant="ghost" onClick={() => setLocation("/labeling")} className="mb-4">
           <ArrowLeft className="w-4 h-4 mr-2" />
           Back to Datasets
         </Button>
