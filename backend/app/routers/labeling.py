@@ -26,7 +26,7 @@ from app.schemas.labeling_schemas import (
 )
 from app.dependencies import get_current_user
 from app.services.labeling_service import labeling_service
-from app.utils.azure_storage import azure_storage
+from app.utils.azure_storage import azure_storage_service
 from app.core.config import settings
 
 router = APIRouter(prefix="/api/labeling", tags=["Labeling"])
@@ -260,7 +260,7 @@ async def delete_dataset(
         # Delete from Azure Storage
         for file_doc in files:
             try:
-                await azure_storage.delete_blob(file_doc["azure_blob_path"])
+                await asyncio.to_thread(azure_storage_service.delete_file, file_doc["azure_blob_path"])
             except Exception as e:
                 print(f"Warning: Failed to delete blob {file_doc['azure_blob_path']}: {e}")
 
@@ -331,7 +331,7 @@ async def upload_files(
 
             # Upload to Azure
             blob_path = f"labeling/{current_user.id}/{dataset_id}/{filename}"
-            await azure_storage.upload_blob(blob_path, content)
+            await asyncio.to_thread(azure_storage_service.upload_file, content, blob_path)
 
             # Create file record
             labeling_file = LabelingFile(
@@ -404,7 +404,7 @@ async def analyze_files(
 
             try:
                 # Download from Azure
-                file_content = await azure_storage.download_blob(file_doc["azure_blob_path"])
+                file_content = await asyncio.to_thread(azure_storage_service.download_file, file_doc["azure_blob_path"])
 
                 # Generate labels
                 label_data = await labeling_service.generate_labels(
@@ -503,7 +503,7 @@ async def refine_labels(
         dataset_doc = await mongodb.db.labeling_datasets.find_one({"_id": file_doc["dataset_id"]})
 
         # Download file
-        file_content = await azure_storage.download_blob(file_doc["azure_blob_path"])
+        file_content = await asyncio.to_thread(azure_storage_service.download_file, file_doc["azure_blob_path"])
 
         # Refine analysis
         label_data = await labeling_service.refine_analysis(
@@ -725,7 +725,7 @@ async def delete_file(
 
         # Delete from Azure
         try:
-            await azure_storage.delete_blob(file_doc["azure_blob_path"])
+            await asyncio.to_thread(azure_storage_service.delete_file, file_doc["azure_blob_path"])
         except Exception as e:
             print(f"Warning: Failed to delete blob: {e}")
 
