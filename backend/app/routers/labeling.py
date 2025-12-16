@@ -63,6 +63,10 @@ async def create_dataset(
 ):
     """Create a new labeling dataset"""
     try:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"Creating dataset for user: {current_user.id}, type: {type(current_user.id)}")
+
         dataset = LabelingDataset(
             user_id=current_user.id,
             name=request.name,
@@ -76,7 +80,11 @@ async def create_dataset(
             updated_at=datetime.utcnow()
         )
 
-        result = await mongodb.db.labeling_datasets.insert_one(dataset.model_dump(by_alias=True, exclude={"id"}))
+        logger.info("Dataset object created successfully")
+        dataset_dict = dataset.model_dump(by_alias=True, exclude={"id"}, mode='json')
+        logger.info(f"Dataset dict: {dataset_dict}")
+
+        result = await mongodb.db.labeling_datasets.insert_one(dataset_dict)
         dataset.id = result.inserted_id
 
         return LabelingDatasetResponse(
@@ -93,6 +101,9 @@ async def create_dataset(
         )
 
     except Exception as e:
+        import traceback
+        logger.error(f"Error creating dataset: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to create dataset: {str(e)}"
@@ -347,7 +358,7 @@ async def upload_files(
                 uploaded_at=datetime.utcnow()
             )
 
-            await mongodb.db.labeling_files.insert_one(labeling_file.model_dump(by_alias=True))
+            await mongodb.db.labeling_files.insert_one(labeling_file.model_dump(by_alias=True, mode='json'))
 
             uploaded_files.append(LabelingFileResponse(
                 id=str(labeling_file.id),
@@ -422,7 +433,7 @@ async def analyze_files(
                         {
                             "$set": {
                                 "status": "completed",
-                                "result": label_data.model_dump(),
+                                "result": label_data.model_dump(mode='json'),
                                 "processed_at": datetime.utcnow()
                             }
                         }
@@ -519,7 +530,7 @@ async def refine_labels(
                 {"_id": ObjectId(file_id)},
                 {
                     "$set": {
-                        "result": label_data.model_dump(),
+                        "result": label_data.model_dump(mode='json'),
                         "processed_at": datetime.utcnow()
                     }
                 }
@@ -534,7 +545,7 @@ async def refine_labels(
                 file_size=file_doc["file_size"],
                 azure_blob_path=file_doc["azure_blob_path"],
                 status=file_doc["status"],
-                result=LabelDataResponse(**label_data.model_dump()),
+                result=LabelDataResponse(**label_data.model_dump(mode='json')),
                 uploaded_at=file_doc["uploaded_at"],
                 processed_at=datetime.utcnow()
             )
