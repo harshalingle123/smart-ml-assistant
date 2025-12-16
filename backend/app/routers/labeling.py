@@ -76,7 +76,7 @@ async def create_dataset(
             updated_at=datetime.utcnow()
         )
 
-        result = await mongodb.db.labeling_datasets.insert_one(dataset.dict(by_alias=True, exclude={"id"}))
+        result = await mongodb.db.labeling_datasets.insert_one(dataset.model_dump(by_alias=True, exclude={"id"}))
         dataset.id = result.inserted_id
 
         return LabelingDatasetResponse(
@@ -347,7 +347,7 @@ async def upload_files(
                 uploaded_at=datetime.utcnow()
             )
 
-            await mongodb.db.labeling_files.insert_one(labeling_file.dict(by_alias=True))
+            await mongodb.db.labeling_files.insert_one(labeling_file.model_dump(by_alias=True))
 
             uploaded_files.append(LabelingFileResponse(
                 id=str(labeling_file.id),
@@ -422,7 +422,7 @@ async def analyze_files(
                         {
                             "$set": {
                                 "status": "completed",
-                                "result": label_data.dict(),
+                                "result": label_data.model_dump(),
                                 "processed_at": datetime.utcnow()
                             }
                         }
@@ -519,7 +519,7 @@ async def refine_labels(
                 {"_id": ObjectId(file_id)},
                 {
                     "$set": {
-                        "result": label_data.dict(),
+                        "result": label_data.model_dump(),
                         "processed_at": datetime.utcnow()
                     }
                 }
@@ -534,7 +534,7 @@ async def refine_labels(
                 file_size=file_doc["file_size"],
                 azure_blob_path=file_doc["azure_blob_path"],
                 status=file_doc["status"],
-                result=LabelDataResponse(**label_data.dict()),
+                result=LabelDataResponse(**label_data.model_dump()),
                 uploaded_at=file_doc["uploaded_at"],
                 processed_at=datetime.utcnow()
             )

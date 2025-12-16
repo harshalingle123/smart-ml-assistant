@@ -215,7 +215,7 @@ class SubscriptionService:
                 billing_cycle_end=period_end
             )
             result = await mongodb.database["usage_records"].insert_one(
-                new_usage.dict(by_alias=True)
+                new_usage.model_dump(by_alias=True)
             )
             logger.info(f"[API USAGE] Created usage record: {result.inserted_id}, initial count: 1")
         else:
@@ -448,7 +448,7 @@ class SubscriptionService:
                 billing_cycle_end=period_end
             )
             await mongodb.database["usage_records"].insert_one(
-                new_usage.dict(by_alias=True)
+                new_usage.model_dump(by_alias=True)
             )
             logger.info(f"[LABELING USAGE] Created usage record with 1 labeled file")
         else:
