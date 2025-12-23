@@ -10,7 +10,7 @@ import {
   SidebarHeader,
   SidebarFooter,
 } from "@/components/ui/sidebar";
-import { MessageSquare, Plus, Database, Cpu, Zap, CreditCard, Settings, LogOut, Bot, Tag } from "lucide-react";
+import { MessageSquare, Plus, Database, Cpu, Zap, CreditCard, Settings, LogOut, Bot } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -47,7 +47,6 @@ export function AppSidebar() {
   const resourceItems = [
     { title: "My Models", url: "/models", icon: Cpu },
     { title: "Datasets", url: "/datasets", icon: Database },
-    { title: "Labeling", url: "/labeling", icon: Tag },
     { title: "Fine-tune Jobs", url: "/fine-tune", icon: Zap },
   ];
 
