@@ -1,4 +1,5 @@
 import { getApiUrl } from "./env";
+import type { LabelingConfig, LabelingResponse } from "./labeling-types";
 
 const BASE_URL = getApiUrl();
 
@@ -941,5 +942,112 @@ export const getCostBreakdown = async () => {
   if (!response.ok) {
     throw new Error("Failed to fetch cost breakdown");
   }
+  return response.json();
+};
+
+// ========================================
+// Data Labeling API
+// ========================================
+
+/**
+ * Generate labels for uploaded files using AI
+ * Uses XMLHttpRequest for progress tracking
+ */
+export const generateLabels = async (
+  files: File[],
+  config: LabelingConfig,
+  onProgress?: (progress: number) => void
+): Promise<LabelingResponse> => {
+  return new Promise((resolve, reject) => {
+    const formData = new FormData();
+
+    // Append all files
+    files.forEach((file) => {
+      formData.append("files", file);
+    });
+
+    // Append config as JSON string
+    formData.append("config", JSON.stringify(config));
+
+    // Create XMLHttpRequest for progress tracking
+    const xhr = new XMLHttpRequest();
+
+    // Track upload progress
+    xhr.upload.addEventListener("progress", (e) => {
+      if (e.lengthComputable && onProgress) {
+        const progress = (e.loaded / e.total) * 100;
+        onProgress(progress);
+      }
+    });
+
+    // Handle completion
+    xhr.addEventListener("load", () => {
+      if (xhr.status === 200) {
+        try {
+          const response = JSON.parse(xhr.responseText);
+          resolve(response);
+        } catch (e) {
+          reject(new Error("Failed to parse response"));
+        }
+      } else if (xhr.status === 401) {
+        handleUnauthorized({ status: 401 } as Response);
+        reject(new Error("Unauthorized"));
+      } else {
+        try {
+          const error = JSON.parse(xhr.responseText);
+          reject(new Error(error.detail || "Labeling failed"));
+        } catch (e) {
+          reject(new Error(`Request failed with status ${xhr.status}`));
+        }
+      }
+    });
+
+    // Handle errors
+    xhr.addEventListener("error", () => {
+      reject(new Error("Network error occurred"));
+    });
+
+    // Handle timeout
+    xhr.addEventListener("timeout", () => {
+      reject(new Error("Request timed out"));
+    });
+
+    // Open and send request
+    xhr.open("POST", `${BASE_URL}/api/labeling/generate-labels`);
+
+    // Set auth header
+    const token = localStorage.getItem("token");
+    if (token) {
+      xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+    }
+
+    // Set timeout (5 minutes for large files)
+    xhr.timeout = 300000;
+
+    // Send request
+    xhr.send(formData);
+  });
+};
+
+/**
+ * Refine labels based on user feedback
+ */
+export const refineLabels = async (
+  labels: any[],
+  feedback: string
+): Promise<any> => {
+  const response = await fetch(`${BASE_URL}/api/labeling/refine-analysis`, {
+    method: "POST",
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ labels, feedback }),
+  });
+
+  handleUnauthorized(response);
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: "Failed to refine labels" }));
+    throw new Error(error.detail || "Failed to refine labels");
+  }
+
   return response.json();
 };

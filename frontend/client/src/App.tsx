@@ -14,6 +14,7 @@ import Models from "@/pages/Models";
 import ModelDetail from "@/pages/ModelDetail";
 import Datasets from "@/pages/Datasets";
 import DatasetDetails from "@/pages/DatasetDetails";
+import DataLabeling from "@/pages/DataLabeling";
 import FineTune from "@/pages/FineTune";
 import Billing from "@/pages/Billing";
 import Chats from "@/pages/Chats";
@@ -47,6 +48,7 @@ function ProtectedLayout() {
                 <Route path="/models" component={Models} />
                 <Route path="/datasets/:id" component={DatasetDetails} />
                 <Route path="/datasets" component={Datasets} />
+                <Route path="/labeling" component={DataLabeling} />
                 <Route path="/fine-tune" component={FineTune} />
                 <Route path="/billing" component={Billing} />
                 <Route path="/settings" component={Settings} />
